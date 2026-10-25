@@ -6,6 +6,9 @@ on:
     paths: ['**.gd', '**.gdshader', '**.tscn', 'project.godot', 'export_presets.cfg', 'data/**', '.github/workflows/godot.yml']
 permissions:
   contents: write
+concurrency:
+  group: godot-android
+  cancel-in-progress: true
 env:
   GODOT_VERSION: "4.2.2"
 jobs:
