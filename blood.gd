@@ -1,7 +1,9 @@
 extends Node2D
-# Camada de sangue: carimbos acumulados num SubViewport + shader que funde em líquido.
+# Camada de sangue em meia resolução: só redesenha quando há carimbos novos.
 
 var vp: SubViewport
+var holder: Node2D
+var disp: Sprite2D
 var soft: GradientTexture2D
 var drops: Array = []
 var queue: Array = []
@@ -9,20 +11,26 @@ var live: Array = []
 var spurts: Array = []
 var wall_layer = null
 var wall_rects: Array = []
+var shown := false
 
 
 func setup(sz: Vector2i, z: int, soft_tex: GradientTexture2D) -> void:
 	soft = soft_tex
 	vp = SubViewport.new()
-	vp.size = sz
+	vp.size = Vector2i(maxi(8, int(sz.x * 0.5)), maxi(8, int(sz.y * 0.5)))
 	vp.transparent_bg = true
 	vp.render_target_clear_mode = SubViewport.CLEAR_MODE_NEVER
-	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 	add_child(vp)
-	var disp := Sprite2D.new()
+	holder = Node2D.new()
+	holder.scale = Vector2(0.5, 0.5)
+	vp.add_child(holder)
+	disp = Sprite2D.new()
 	disp.texture = vp.get_texture()
 	disp.centered = false
+	disp.scale = Vector2(2, 2)
 	disp.z_index = z
+	disp.visible = false
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://blood.gdshader")
 	disp.material = mat
@@ -30,7 +38,7 @@ func setup(sz: Vector2i, z: int, soft_tex: GradientTexture2D) -> void:
 
 
 func stamp(pos: Vector2, sc: Vector2, rot: float, col: Color = Color(0.5, 0.0, 0.04, 0.9)) -> void:
-	if queue.size() < 500:
+	if queue.size() < 400:
 		queue.append([pos, sc, rot, col])
 
 
@@ -45,10 +53,10 @@ func spray(pos: Vector2, dir: Vector2, n: int, power: float) -> void:
 			a += PI + randf_range(-0.8, 0.8)
 		else:
 			a += float(lobes[randi() % lobes.size()]) + randf_range(-0.25, 0.25)
-		var s := (0.6 if back else 1.0) * power * (60.0 + pow(randf(), 2.2) * 520.0)
+		var s: float = (0.6 if back else 1.0) * power * (60.0 + pow(randf(), 2.2) * 520.0)
 		drops.append({"p": pos, "v": Vector2.from_angle(a) * s, "l": randf_range(0.25, 0.7), "a": a, "s": s})
-	if drops.size() > 400:
-		drops = drops.slice(drops.size() - 400)
+	if drops.size() > 300:
+		drops = drops.slice(drops.size() - 300)
 
 
 func add_spurt(target: Node2D, off: Vector2, ang: float, dur: float) -> void:
@@ -62,26 +70,29 @@ func _in_wall(p: Vector2) -> bool:
 	return false
 
 
+func _process(_delta: float) -> void:
+	for s in live:
+		s.queue_free()
+	live = []
+	var n: int = mini(queue.size(), 30)
+	if n > 0:
+		for i in n:
+			var q: Array = queue.pop_front()
+			var sp := Sprite2D.new()
+			sp.texture = soft
+			sp.position = q[0]
+			sp.scale = q[1]
+			sp.rotation = q[2]
+			sp.modulate = q[3]
+			holder.add_child(sp)
+			live.append(sp)
+		vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+		if not shown:
+			shown = true
+			disp.visible = true
+
+
 func _physics_process(delta: float) -> void:
-	var n := mini(queue.size(), 40)
-	for i in n:
-		var q: Array = queue.pop_front()
-		var s := Sprite2D.new()
-		s.texture = soft
-		s.position = q[0]
-		s.scale = q[1]
-		s.rotation = q[2]
-		s.modulate = q[3]
-		vp.add_child(s)
-		live.append([s, 2])
-	var keep: Array = []
-	for l in live:
-		l[1] -= 1
-		if l[1] <= 0:
-			l[0].queue_free()
-		else:
-			keep.append(l)
-	live = keep
 	_update_drops(delta)
 	_update_spurts(delta)
 
@@ -115,7 +126,7 @@ func _update_spurts(delta: float) -> void:
 		var t = sp["t"]
 		if sp["d"] > 0.0 and is_instance_valid(t):
 			var pos: Vector2 = t.to_global(sp["o"])
-			var dir := Vector2.from_angle(float(sp["a"])).rotated(t.global_rotation)
+			var dir: Vector2 = Vector2.from_angle(float(sp["a"])).rotated(t.global_rotation)
 			if sp["c"] >= 0.45:
 				sp["c"] = 0.0
 				spray(pos, dir, 7, 0.9)
