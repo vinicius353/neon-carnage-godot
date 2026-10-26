@@ -1,5 +1,5 @@
 extends CharacterBody2D
-# Civil: ferimento por zona (cabeça, braços, pernas), desmembramento e fuga.
+# Civil ou policial: ferimento por zona, desmembramento, fuga e perseguição por caminhos.
 
 var main = null
 var hp := 40.0
@@ -10,6 +10,12 @@ var arm_dmg := [0.0, 0.0]
 var legs_dmg := 0.0
 var dead := false
 var burn := 0.0
+var cop := false
+var sleeping := false
+var alert_t := 0.0
+var path: Array = []
+var repath := 0.0
+var shoot_t := 1.0
 var skin := Color(0.85, 0.7, 0.55)
 var shirt := Color(0.5, 0.4, 0.5)
 var hair := Color(0.2, 0.12, 0.06)
@@ -41,7 +47,9 @@ func _dk(c: Color, k: float) -> Color:
 
 func _draw() -> void:
 	var k := 0.55 if dead else 1.0
-	if not dead:
+	if sleeping:
+		k = 0.8
+	if not dead and not sleeping:
 		var s := sin(ph) * 4.0
 		draw_rect(Rect2(-5 + s, -7, 7, 5), Color(0.15, 0.15, 0.2))
 		draw_rect(Rect2(-5 - s, 2, 7, 5), Color(0.15, 0.15, 0.2))
@@ -54,6 +62,9 @@ func _draw() -> void:
 		else:
 			draw_circle(base, 3.0, Color(0.6, 0.03, 0.06))
 			draw_circle(base, 1.4, Color(0.9, 0.88, 0.8))
+	if cop and not dead:
+		draw_rect(Rect2(8, 3, 12, 3), Color(0.1, 0.1, 0.1))
+		draw_circle(Vector2(3, -5), 1.6, Color(0.9, 0.8, 0.2))
 	if has_head:
 		draw_circle(Vector2(1, 0), 6.0, _dk(skin, k))
 		draw_arc(Vector2.ZERO, 6.0, PI * 0.6, PI * 1.4, 8, _dk(hair, k), 4.0)
@@ -65,6 +76,8 @@ func _draw() -> void:
 func hit(dmg: float, dir: Vector2, gpos: Vector2, cut: float) -> void:
 	if dead:
 		return
+	sleeping = false
+	alert_t = 4.0
 	var lp := to_local(gpos + dir * randf_range(3.0, 10.0))
 	var d := dmg
 	var zone := "torso"
@@ -127,6 +140,71 @@ func die(dir: Vector2, over: float) -> void:
 	queue_redraw()
 
 
+func _los(p: Vector2) -> bool:
+	var q := PhysicsRayQueryParameters2D.create(global_position, p, 1)
+	var h := get_world_2d().direct_space_state.intersect_ray(q)
+	return h.is_empty()
+
+
+func _follow(spd: float) -> void:
+	if path.is_empty():
+		velocity = Vector2.ZERO
+		return
+	var t: Vector2 = path[0]
+	var d := t - global_position
+	if d.length() < 10.0:
+		path.remove_at(0)
+		return
+	velocity = d.normalized() * spd
+
+
+func _civ_ai(delta: float, p: Vector2, dist: float, away: Vector2) -> void:
+	var spd := 150.0
+	if legs_dmg >= 40.0:
+		spd = 45.0
+		if randf() < 0.2:
+			main.blood.stamp(global_position, Vector2(0.2, 0.15), face)
+	if burn > 0.0:
+		spd *= 1.3
+	if dist < 280.0 or burn > 0.0:
+		alert_t = 4.0
+	if alert_t > 0.0:
+		alert_t -= delta
+		if main.nav != null:
+			repath -= delta
+			if repath <= 0.0:
+				repath = 0.5
+				path = main.nav.flee_path(global_position, p)
+			_follow(spd)
+		else:
+			velocity = away.normalized() * spd + Vector2.from_angle(randf() * TAU) * 30.0
+	else:
+		if randf() < 0.01:
+			wander = Vector2.from_angle(randf() * TAU)
+		velocity = wander * 35.0
+
+
+func _cop_ai(delta: float, p: Vector2, dist: float) -> void:
+	shoot_t -= delta
+	repath -= delta
+	if dist < 440.0 and _los(p):
+		face = (p - global_position).angle()
+		rotation = face
+		if shoot_t <= 0.0:
+			shoot_t = 0.9 + randf() * 0.4
+			main.cop_shot(global_position, p)
+		if dist < 170.0:
+			velocity = Vector2.ZERO
+			return
+	if main.nav != null:
+		if repath <= 0.0:
+			repath = 0.5
+			path = main.nav.path(global_position, p)
+		_follow(110.0)
+	else:
+		velocity = (p - global_position).normalized() * 110.0
+
+
 func _physics_process(delta: float) -> void:
 	if dead:
 		return
@@ -138,25 +216,26 @@ func _physics_process(delta: float) -> void:
 		if hp <= 0.0:
 			die(Vector2.RIGHT, 0.0)
 			return
-	var away: Vector2 = global_position - main.player.global_position
-	var spd := 150.0
-	if legs_dmg >= 40.0:
-		spd = 45.0
-		if randf() < 0.2:
-			main.blood.stamp(global_position, Vector2(0.2, 0.15), face)
-	if burn > 0.0:
-		spd *= 1.3
-	if away.length() < 260.0 or burn > 0.0:
-		velocity = away.normalized() * spd + Vector2.from_angle(randf() * TAU) * 30.0
+	var p: Vector2 = main.player.global_position
+	var away: Vector2 = global_position - p
+	var dist := away.length()
+	if sleeping:
+		if dist < 110.0:
+			sleeping = false
+			alert_t = 4.0
+			queue_redraw()
+		else:
+			return
+	if cop:
+		_cop_ai(delta, p, dist)
 	else:
-		if randf() < 0.01:
-			wander = Vector2.from_angle(randf() * TAU)
-		velocity = wander * 35.0
+		_civ_ai(delta, p, dist, away)
 	move_and_slide()
 	if hp < 20.0 and randf() < 0.15:
 		main.blood.stamp(global_position, Vector2(0.12, 0.12), randf() * TAU)
 	if velocity.length() > 5.0:
-		face = lerp_angle(face, velocity.angle(), 0.2)
-		rotation = face
+		if not cop or not _los(p):
+			face = lerp_angle(face, velocity.angle(), 0.2)
+			rotation = face
 		ph += velocity.length() * delta * 0.12
 		queue_redraw()
