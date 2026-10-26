@@ -1,5 +1,5 @@
 extends Node2D
-# Jogo: mundo, jogador, câmera, interface, polícia.
+# Jogo: mundo, jogador, câmera, interface, polícia. Gráficos BAIXO (padrão, leve) ou ALTO.
 
 const MAP_IDS := ["casa", "banco", "hospital", "mercado"]
 const PROPCOL := {"bed": Color(0.78, 0.74, 0.68), "sofa": Color(0.40, 0.12, 0.16), "tv": Color(0.05, 0.07, 0.10), "tbl": Color(0.40, 0.28, 0.17), "chr": Color(0.48, 0.35, 0.20), "cnt": Color(0.65, 0.63, 0.58), "stv": Color(0.75, 0.75, 0.76), "fri": Color(0.85, 0.86, 0.86), "bks": Color(0.25, 0.17, 0.10), "wrd": Color(0.29, 0.20, 0.14), "dsk": Color(0.35, 0.25, 0.15), "plt": Color(0.18, 0.42, 0.20), "tub": Color(0.85, 0.90, 0.91), "toi": Color(0.93, 0.93, 0.93), "wsh": Color(0.80, 0.82, 0.83), "cab": Color(0.35, 0.23, 0.15), "fpl": Color(0.42, 0.25, 0.21), "nst": Color(0.35, 0.24, 0.15), "mac": Color(0.70, 0.75, 0.77), "prt": Color(0.35, 0.35, 0.38), "c": Color(0.42, 0.29, 0.17)}
@@ -14,6 +14,7 @@ var Hud
 var Nav
 var map: Dictionary = {}
 var map_i := 0
+var low := true
 var mw := 1600.0
 var mh := 900.0
 var nav = null
@@ -24,7 +25,7 @@ var sfx
 var weapons
 var art
 var player: CharacterBody2D
-var light: PointLight2D
+var light: PointLight2D = null
 var cam: Camera2D
 var actors: Array = []
 var corpses: Array = []
@@ -44,6 +45,8 @@ var php := 100.0
 var pdead := false
 var death_t := 0.0
 var flash_a := 0.0
+var last_flash := 0.0
+var hud_t := 0.0
 var police_called := false
 var clear_t := 0.0
 var win_t := 0.0
@@ -60,6 +63,17 @@ var dmg_rect: ColorRect
 
 func _ready() -> void:
 	randomize()
+	low = int(get_tree().root.get_meta("gfx", 0)) == 0
+	var win: Window = get_window()
+	if low:
+		win.content_scale_mode = Window.CONTENT_SCALE_MODE_VIEWPORT
+		win.content_scale_size = Vector2i(960, 540)
+		Engine.physics_ticks_per_second = 30
+	else:
+		win.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+		win.content_scale_size = Vector2i(1280, 720)
+		Engine.physics_ticks_per_second = 60
+	win.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND
 	Blood = load("res://blood.gd")
 	Sfx = load("res://sfx.gd")
 	Weapons = load("res://weapons.gd")
@@ -121,11 +135,12 @@ func _block(r: Rect2, col: Color, solid: bool, kind: String) -> void:
 		cs.shape = rs
 		cs.position = r.size / 2.0
 		b.add_child(cs)
-		var oc := LightOccluder2D.new()
-		var poly := OccluderPolygon2D.new()
-		poly.polygon = PackedVector2Array([Vector2(0, 0), Vector2(r.size.x, 0), r.size, Vector2(0, r.size.y)])
-		oc.occluder = poly
-		b.add_child(oc)
+		if not low:
+			var oc := LightOccluder2D.new()
+			var poly := OccluderPolygon2D.new()
+			poly.polygon = PackedVector2Array([Vector2(0, 0), Vector2(r.size.x, 0), r.size, Vector2(0, r.size.y)])
+			oc.occluder = poly
+			b.add_child(oc)
 	var vis := ColorRect.new()
 	vis.color = col
 	vis.size = r.size
@@ -164,9 +179,10 @@ func _build_world() -> void:
 		rr.size = Vector2(r[2], r[3])
 		rr.z_index = -19
 		add_child(rr)
-	var cm := CanvasModulate.new()
-	cm.color = Color(0.34, 0.34, 0.42)
-	add_child(cm)
+	if not low:
+		var cm := CanvasModulate.new()
+		cm.color = Color(0.34, 0.34, 0.42)
+		add_child(cm)
 	sfx = Sfx.new()
 	add_child(sfx)
 	blood = Blood.new()
@@ -222,13 +238,14 @@ func _make_player() -> void:
 	player.add_child(head)
 	art = WeaponArt.new()
 	player.add_child(art)
-	light = PointLight2D.new()
-	light.texture = soft
-	light.texture_scale = 7.0
-	light.energy = 1.3
-	light.color = Color(1.0, 0.92, 0.8)
-	light.shadow_enabled = true
-	player.add_child(light)
+	if not low:
+		light = PointLight2D.new()
+		light.texture = soft
+		light.texture_scale = 6.0
+		light.energy = 1.3
+		light.color = Color(1.0, 0.92, 0.8)
+		light.shadow_enabled = true
+		player.add_child(light)
 	add_child(player)
 	cam = Camera2D.new()
 	cam.limit_left = 0
@@ -322,6 +339,24 @@ func _make_ui() -> void:
 	var cl := CanvasLayer.new()
 	cl.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(cl)
+	if low:
+		var vg := Gradient.new()
+		vg.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
+		vg.colors = PackedColorArray([Color(0, 0, 0, 0), Color(0, 0, 0, 0), Color(0, 0, 0, 0.7)])
+		var vt := GradientTexture2D.new()
+		vt.gradient = vg
+		vt.fill = GradientTexture2D.FILL_RADIAL
+		vt.fill_from = Vector2(0.5, 0.5)
+		vt.fill_to = Vector2(0.5, 0.0)
+		vt.width = 128
+		vt.height = 128
+		var vr := TextureRect.new()
+		vr.texture = vt
+		vr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		vr.stretch_mode = TextureRect.STRETCH_SCALE
+		vr.set_anchors_preset(Control.PRESET_FULL_RECT)
+		vr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		cl.add_child(vr)
 	dmg_rect = ColorRect.new()
 	dmg_rect.color = Color(0.7, 0.0, 0.0, 0.0)
 	dmg_rect.size = Vector2(4000, 3000)
@@ -354,6 +389,8 @@ func _make_ui() -> void:
 	_btn(cl, "R", func(): weapons.manual_reload())
 	_btn(cl, "MAPA", _next_map)
 	_btn(cl, "POLICIA", _police_btn)
+	var gb := _btn(cl, "GFX", _toggle_gfx)
+	gb.text = "GFX:B" if low else "GFX:A"
 	_btn(cl, "DBG", func(): debug_label.visible = not debug_label.visible)
 	_btn(cl, "II", _toggle_pause)
 	_btn(cl, "NOVO", _restart)
@@ -378,6 +415,11 @@ func _layout() -> void:
 
 func _next_map() -> void:
 	get_tree().root.set_meta("map_i", (map_i + 1) % MAP_IDS.size())
+	_restart()
+
+
+func _toggle_gfx() -> void:
+	get_tree().root.set_meta("gfx", 1 if low else 0)
 	_restart()
 
 
@@ -477,9 +519,24 @@ func cop_shot(from: Vector2, to: Vector2) -> void:
 		hurt_player(8.0)
 
 
+func _update_label() -> void:
+	var w: Dictionary = weapons.cur()
+	var am := ""
+	if w["melee"]:
+		am = "corpo a corpo"
+	else:
+		var nm: String = w["nome"]
+		am = "%d/%d" % [int(weapons.ammo[nm]), int(weapons.reserve[nm])]
+		if weapons.reload_t > 0.0:
+			am += " recarregando"
+	name_label.text = "HP %d   %s   %s   civis: %d   mortes: %d" % [int(php), w["nome"], am, civis_count(), kills]
+
+
 func _physics_process(delta: float) -> void:
 	flash_a = maxf(0.0, flash_a - delta * 1.5)
-	dmg_rect.color = Color(0.7, 0.0, 0.0, flash_a)
+	if flash_a > 0.0 or last_flash > 0.0:
+		dmg_rect.color = Color(0.7, 0.0, 0.0, flash_a)
+	last_flash = flash_a
 	if pdead:
 		death_t -= delta
 		if death_t <= 0.0:
@@ -494,7 +551,8 @@ func _physics_process(delta: float) -> void:
 	player.velocity = mv.limit_length(1.0) * 170.0 * (0.7 + 0.3 * float(w["peso"]))
 	player.move_and_slide()
 	player.rotation = aim_v.angle()
-	light.energy = lerpf(light.energy, 1.3, 0.15)
+	if light != null:
+		light.energy = lerpf(light.energy, 1.3, 0.15)
 	weapons.update(delta, firing, aim_v, player.global_position + aim_v * 14.0)
 	_update_pieces()
 	_update_corpses(delta)
@@ -507,21 +565,17 @@ func _physics_process(delta: float) -> void:
 		msg("NAO SOBROU NINGUEM")
 		if win_t > 4.0:
 			_restart()
-	var am := ""
-	if w["melee"]:
-		am = "corpo a corpo"
-	else:
-		var nm: String = w["nome"]
-		am = "%d/%d" % [int(weapons.ammo[nm]), int(weapons.reserve[nm])]
-		if weapons.reload_t > 0.0:
-			am += " recarregando"
-	name_label.text = "HP %d   %s   %s   civis: %d   mortes: %d" % [int(php), w["nome"], am, civis_count(), kills]
+	hud_t -= delta
+	if hud_t <= 0.0:
+		hud_t = 0.2
+		_update_label()
 
 
 func _process(delta: float) -> void:
 	var vs := get_viewport().get_visible_rect().size
 	var land := vs.x > vs.y
-	cam.zoom = Vector2.ONE * (1.0 if land else 1.4)
+	var zf := 0.75 if low else 1.0
+	cam.zoom = Vector2.ONE * ((1.0 if land else 1.4) * zf)
 	var look := 110.0
 	if weapons.cur()["nome"] == "Sniper":
 		look = 260.0
@@ -533,7 +587,7 @@ func _process(delta: float) -> void:
 	if msg_t <= 0.0 and not pdead and win_t == 0.0:
 		msg_label.text = ""
 	if debug_label.visible:
-		debug_label.text = "FPS %d\nmapa %s\nautores %d  pedacos %d\ngotas %d  fila %d  carimbos %d" % [Engine.get_frames_per_second(), str(map.get("name", "?")), actors.size(), pieces.size(), blood.drops.size(), blood.queue.size(), blood.live.size()]
+		debug_label.text = "FPS %d  gfx %s\nmapa %s\nautores %d  pedacos %d\ngotas %d  fila %d  carimbos %d" % [Engine.get_frames_per_second(), "baixo" if low else "alto", str(map.get("name", "?")), actors.size(), pieces.size(), blood.drops.size(), blood.queue.size(), blood.live.size()]
 
 
 func shake(v: float) -> void:
@@ -541,7 +595,8 @@ func shake(v: float) -> void:
 
 
 func shoot_fx() -> void:
-	light.energy = 2.6
+	if light != null:
+		light.energy = 2.6
 	art.flash = 0.06
 	art.recoil = 1.0
 	shake(1.5)
@@ -565,8 +620,9 @@ func spawn_piece(kind: String, pos: Vector2, dir: Vector2, skin: Color, hair: Co
 	p.apply_impulse(dir.rotated(randf_range(-0.6, 0.6)) * randf_range(140.0, 280.0))
 	p.angular_velocity = randf_range(-8.0, 8.0)
 	pieces.append(p)
-	if pieces.size() > 80:
-		pieces.pop_front().queue_free()
+	if pieces.size() > 60:
+		var old = pieces.pop_front()
+		old.queue_free()
 
 
 func _update_pieces() -> void:
