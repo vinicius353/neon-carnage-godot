@@ -21,7 +21,7 @@ func load_list() -> void:
 		if data is Dictionary:
 			list = data["armas"]
 	if list.is_empty():
-		list = [{"nome": "Pistola", "tipo": "pistola", "melee": false, "municao": 12, "recarga": 70, "dano": 34, "cadencia": 16, "dispersao": 0.04, "projeteis": 1, "velocidade": 12, "alcance_frames": 60, "arte": 0}]
+		list = [{"nome": "Pistola", "tipo": "pistola", "melee": false, "municao": 12, "recarga": 70, "dano": 34, "cadencia": 16, "dispersao": 0.04, "projeteis": 1, "velocidade": 12, "alcance_frames": 60, "peso": 1, "arte": 0}]
 	for w in list:
 		var m := 0
 		if w["municao"] != null:
@@ -64,8 +64,8 @@ func update(delta: float, firing: bool, aim: Vector2, origin: Vector2) -> void:
 	if reload_t > 0.0:
 		reload_t -= delta
 		if reload_t <= 0.0:
-			var take := mini(int(w["municao"]), reserve[nm])
-			reserve[nm] -= take
+			var take: int = mini(int(w["municao"]), int(reserve[nm]))
+			reserve[nm] = int(reserve[nm]) - take
 			ammo[nm] = float(take)
 		_flame_off()
 		return
@@ -112,30 +112,32 @@ func _shoot(aim: Vector2, origin: Vector2, w: Dictionary, nm: String) -> void:
 		snd = "besta"
 	main.sfx.play(snd, randf_range(0.95, 1.05))
 	main.shoot_fx()
-	var rng := minf(1100.0, float(w["velocidade"]) * float(w["alcance_frames"]))
-	var pen := 3 if nm == "Sniper" else 0
+	var rng: float = minf(1100.0, float(w["velocidade"]) * float(w["alcance_frames"]))
+	var pen: int = 0
+	if nm == "Sniper":
+		pen = 3
 	var cut: float = CUT.get(nm, 0.0)
-	var spread := float(w["dispersao"])
+	var spread: float = float(w["dispersao"])
 	for i in int(w["projeteis"]):
-		var dir := aim.rotated(randf_range(-spread, spread))
+		var dir: Vector2 = aim.rotated(randf_range(-spread, spread))
 		_ray(origin, dir, rng, float(w["dano"]), pen, cut, nm == "Besta", tipo == "escopeta")
 
 
 func _ray(origin: Vector2, dir: Vector2, rng: float, dmg: float, pen: int, cut: float, arrow: bool, close_only: bool) -> void:
-	var space := main.get_world_2d().direct_space_state
-	var from := origin
+	var space: PhysicsDirectSpaceState2D = main.get_world_2d().direct_space_state
+	var from: Vector2 = origin
 	var excl: Array = [main.player.get_rid()]
-	var d := dmg
-	for step in pen + 1:
-		var q := PhysicsRayQueryParameters2D.create(from, origin + dir * rng, 1 | 2)
+	var d: float = dmg
+	for n in pen + 1:
+		var q: PhysicsRayQueryParameters2D = PhysicsRayQueryParameters2D.create(from, origin + dir * rng, 1 | 2)
 		q.exclude = excl
-		var hit := space.intersect_ray(q)
-		if hit.is_empty():
+		var res: Dictionary = space.intersect_ray(q)
+		if res.is_empty():
 			return
-		var col = hit["collider"]
-		var pos: Vector2 = hit["position"]
+		var col = res["collider"]
+		var pos: Vector2 = res["position"]
 		if col.has_method("hit") and not col.dead:
-			var c := cut
+			var c: float = cut
 			if close_only and origin.distance_to(pos) > 130.0:
 				c = 0.0
 			col.hit(d, dir, pos, c)
@@ -160,7 +162,8 @@ func _arrow(pos: Vector2, dir: Vector2) -> void:
 	main.add_child(l)
 	arrows.append(l)
 	if arrows.size() > 60:
-		arrows.pop_front().queue_free()
+		var old = arrows.pop_front()
+		old.queue_free()
 
 
 func _melee(aim: Vector2, origin: Vector2, w: Dictionary, nm: String) -> void:
