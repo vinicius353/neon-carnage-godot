@@ -11,6 +11,7 @@ var WeaponArt
 var Actor
 var Piece
 var Hud
+var Figure
 var Nav
 var map: Dictionary = {}
 var map_i := 0
@@ -24,6 +25,7 @@ var wall_blood
 var sfx
 var weapons
 var art
+var fig
 var player: CharacterBody2D
 var light: PointLight2D = null
 var cam: Camera2D
@@ -81,6 +83,7 @@ func _ready() -> void:
 	Actor = load("res://actor.gd")
 	Piece = load("res://piece.gd")
 	Hud = load("res://hud.gd")
+	Figure = load("res://figure.gd")
 	map_i = int(get_tree().root.get_meta("map_i", 0))
 	var bad_opt: Array = get_meta("bad_opt", [])
 	if bad_opt.is_empty():
@@ -205,20 +208,10 @@ func _build_world() -> void:
 		if solid:
 			solids.append(r2)
 	blood.wall_rects = solids
+	wall_blood.wall_rects = solids
 	if Nav != null:
 		nav = Nav.new()
 		nav.build(Vector2(mw, mh), solids)
-
-
-func _disc(r: float, col: Color) -> Polygon2D:
-	var p := Polygon2D.new()
-	var pts := PackedVector2Array()
-	for i in 20:
-		var a := TAU * i / 20.0
-		pts.append(Vector2(cos(a), sin(a)) * r)
-	p.polygon = pts
-	p.color = col
-	return p
 
 
 func _make_player() -> void:
@@ -232,12 +225,15 @@ func _make_player() -> void:
 	c.radius = 12.0
 	cs.shape = c
 	player.add_child(cs)
-	player.add_child(_disc(12.0, Color(0.20, 0.55, 0.85)))
-	var head := _disc(6.0, Color(0.9, 0.75, 0.6))
-	head.position = Vector2(1, 0)
-	player.add_child(head)
 	art = WeaponArt.new()
 	player.add_child(art)
+	fig = Figure.new()
+	fig.skin = Color(0.90, 0.75, 0.60)
+	fig.shirt = Color(0.18, 0.40, 0.72)
+	fig.pants = Color(0.14, 0.14, 0.20)
+	fig.hair = Color(0.15, 0.09, 0.05)
+	fig.hair_style = 0
+	player.add_child(fig)
 	if not low:
 		light = PointLight2D.new()
 		light.texture = soft
@@ -255,6 +251,16 @@ func _make_player() -> void:
 	add_child(cam)
 	cam.global_position = player.global_position
 	cam.make_current()
+
+
+func _hold_for(a: int) -> String:
+	if a == 0 or a == 19:
+		return "one"
+	if a == 18:
+		return "dual"
+	if a in [3, 5, 6, 11, 12, 15, 16, 17]:
+		return "melee"
+	return "two"
 
 
 func _free_spot() -> Vector2:
@@ -275,6 +281,7 @@ func _make_civ(pos: Vector2, sleeping: bool) -> void:
 	if sleeping:
 		a.rotation = randf() * TAU
 		a.face = a.rotation
+	a.refresh()
 	actors.append(a)
 
 
@@ -303,9 +310,11 @@ func call_police() -> void:
 		a.setup(self, pos)
 		a.cop = true
 		a.hp = 70.0
+		a.hp0 = 70.0
 		a.shirt = Color(0.10, 0.20, 0.50)
 		a.skin = Color(0.85, 0.70, 0.58)
 		a.hair = Color(0.10, 0.08, 0.06)
+		a.refresh()
 		actors.append(a)
 	police_called = true
 	msg("ELES CHEGARAM")
@@ -494,11 +503,14 @@ func hurt_player(d: float) -> void:
 	php -= d
 	flash_a = 0.45
 	shake(4.0)
+	fig.kick = Vector2.from_angle(randf() * TAU) * 3.0
 	blood.stamp(player.global_position, Vector2(0.3, 0.3), randf() * TAU)
 	blood.spray(player.global_position, Vector2.from_angle(randf() * TAU), 5, 0.8)
 	if php <= 0.0:
 		pdead = true
 		death_t = 2.5
+		fig.dead = true
+		fig.fall_t = 0.25
 		msg("FIM.")
 
 
@@ -551,6 +563,12 @@ func _physics_process(delta: float) -> void:
 	player.velocity = mv.limit_length(1.0) * 170.0 * (0.7 + 0.3 * float(w["peso"]))
 	player.move_and_slide()
 	player.rotation = aim_v.angle()
+	fig.moving = mv.length() > 0.1
+	fig.phase += player.velocity.length() * delta * 0.12
+	fig.hold = _hold_for(art.art)
+	fig.swing = art.swing
+	fig.recoil = art.recoil
+	fig.blood = clampf(1.0 - php / 100.0, 0.0, 1.0)
 	if light != null:
 		light.energy = lerpf(light.energy, 1.3, 0.15)
 	weapons.update(delta, firing, aim_v, player.global_position + aim_v * 14.0)
@@ -605,8 +623,12 @@ func shoot_fx() -> void:
 func on_death(a, dir: Vector2, over: float) -> void:
 	actors.erase(a)
 	kills += 1
-	corpses.append({"n": a, "t": 9.0})
+	corpses.append({"n": a, "t": 12.0})
 	blood.spray(a.global_position, dir, 14, 1.0)
+	blood.stamp(a.global_position, Vector2(0.9, 0.7), randf() * TAU)
+	if over > 15.0:
+		for i in int(clampf(over / 20.0, 1.0, 5.0)):
+			spawn_piece("meat", a.global_position, dir, a.skin, a.hair)
 	if over > 40.0:
 		for i in 1 + randi() % 3:
 			spawn_piece(["heart", "lung", "gut"][randi() % 3], a.global_position, dir, a.skin, a.hair)
@@ -636,8 +658,10 @@ func _update_corpses(delta: float) -> void:
 	for c in corpses:
 		c["t"] -= delta
 		if c["t"] > 0.0 and is_instance_valid(c["n"]):
-			if randf() < 0.15:
-				var p: Vector2 = c["n"].global_position + Vector2(randf_range(-10, 10), randf_range(-10, 10))
-				blood.stamp(p, Vector2(0.3 + randf() * 0.3, 0.3 + randf() * 0.3), randf() * TAU)
+			if randf() < 0.2:
+				var age: float = 1.0 - float(c["t"]) / 12.0
+				var col := Color(0.5 - 0.18 * age, 0.0, 0.04, 0.9)
+				var p: Vector2 = c["n"].global_position + Vector2(randf_range(-12, 12), randf_range(-12, 12))
+				blood.stamp(p, Vector2(0.35 + randf() * 0.45, 0.35 + randf() * 0.45), randf() * TAU, col)
 			keep.append(c)
 	corpses = keep
