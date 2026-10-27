@@ -1,5 +1,5 @@
 extends RigidBody2D
-# Pedaços soltos: braço, cabeça e órgãos (coração, pulmão, intestino).
+# Pedaços soltos: braço, cabeça, órgãos (coração, pulmão, intestino) e pedaços de carne.
 
 var kind := "arm"
 var skin := Color(0.85, 0.7, 0.55)
@@ -47,5 +47,9 @@ func _draw() -> void:
 		"gut":
 			for i in 6:
 				draw_circle(Vector2(-10 + i * 4, sin(i * 1.3) * 2.5), 2.6, Color(0.72, 0.42, 0.45))
+		"meat":
+			draw_circle(Vector2.ZERO, 3.2, Color(0.5, 0.05, 0.07))
+			draw_circle(Vector2(2, 1), 2.1, Color(0.62, 0.1, 0.12))
+			draw_circle(Vector2(-1.5, -1.5), 1.2, Color(0.95, 0.6, 0.6, 0.6))
 		_:
 			draw_circle(Vector2.ZERO, 4.5, Color(0.42, 0.1, 0.08))
