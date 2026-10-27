@@ -1,8 +1,11 @@
 extends CharacterBody2D
 # Civil ou policial: ferimento por zona, desmembramento, fuga e perseguição por caminhos.
+# O desenho do corpo fica no figure.gd.
 
 var main = null
+var fig = null
 var hp := 40.0
+var hp0 := 40.0
 var has_head := true
 var arm_l := true
 var arm_r := true
@@ -19,7 +22,6 @@ var shoot_t := 1.0
 var skin := Color(0.85, 0.7, 0.55)
 var shirt := Color(0.5, 0.4, 0.5)
 var hair := Color(0.2, 0.12, 0.06)
-var ph := 0.0
 var wander := Vector2.RIGHT
 var face := 0.0
 
@@ -39,38 +41,27 @@ func setup(m, pos: Vector2) -> void:
 	shirt = Color(randf_range(0.2, 0.8), randf_range(0.2, 0.7), randf_range(0.2, 0.8))
 	hair = Color(randf_range(0.05, 0.5), randf_range(0.03, 0.3), randf_range(0.02, 0.2))
 	wander = Vector2.from_angle(randf() * TAU)
+	fig = m.Figure.new()
+	fig.pants = Color(randf_range(0.10, 0.35), randf_range(0.10, 0.30), randf_range(0.15, 0.40))
+	fig.hair_style = randi() % 3
+	fig.seed_v = randf() * 10.0
+	add_child(fig)
+	refresh()
 
 
-func _dk(c: Color, k: float) -> Color:
-	return Color(c.r * k, c.g * k, c.b * k, 1.0)
-
-
-func _draw() -> void:
-	var k := 0.55 if dead else 1.0
-	if sleeping:
-		k = 0.8
-	if not dead and not sleeping:
-		var s := sin(ph) * 4.0
-		draw_rect(Rect2(-5 + s, -7, 7, 5), Color(0.15, 0.15, 0.2))
-		draw_rect(Rect2(-5 - s, 2, 7, 5), Color(0.15, 0.15, 0.2))
-	draw_circle(Vector2.ZERO, 10.0, _dk(shirt, k))
-	for side in [-1, 1]:
-		var ok: bool = arm_l if side < 0 else arm_r
-		var base := Vector2(0, 9.0 * side)
-		if ok:
-			draw_line(base, base + Vector2(9, 2.0 * side), _dk(skin, k), 4.0)
-		else:
-			draw_circle(base, 3.0, Color(0.6, 0.03, 0.06))
-			draw_circle(base, 1.4, Color(0.9, 0.88, 0.8))
-	if cop and not dead:
-		draw_rect(Rect2(8, 3, 12, 3), Color(0.1, 0.1, 0.1))
-		draw_circle(Vector2(3, -5), 1.6, Color(0.9, 0.8, 0.2))
-	if has_head:
-		draw_circle(Vector2(1, 0), 6.0, _dk(skin, k))
-		draw_arc(Vector2.ZERO, 6.0, PI * 0.6, PI * 1.4, 8, _dk(hair, k), 4.0)
-	else:
-		draw_circle(Vector2(1, 0), 4.5, Color(0.55, 0.03, 0.06))
-		draw_circle(Vector2(1, 0), 2.0, Color(0.9, 0.88, 0.8))
+func refresh() -> void:
+	fig.has_head = has_head
+	fig.arm_l = arm_l
+	fig.arm_r = arm_r
+	fig.dead = dead
+	fig.sleeping = sleeping
+	fig.is_cop = cop
+	fig.skin = skin
+	fig.shirt = shirt
+	fig.hair = hair
+	fig.hold = "one" if cop else "none"
+	fig.blood = clampf(1.0 - hp / hp0, 0.0, 1.0)
+	fig.queue_redraw()
 
 
 func hit(dmg: float, dir: Vector2, gpos: Vector2, cut: float) -> void:
@@ -93,6 +84,7 @@ func hit(dmg: float, dir: Vector2, gpos: Vector2, cut: float) -> void:
 		zone = "legs"
 		legs_dmg += dmg
 	hp -= d
+	fig.kick = dir * 3.0
 	main.blood.spray(gpos, dir, 6 if hp > 0.0 else 16, 1.0)
 	main.blood.stamp(gpos, Vector2(0.3, 0.3), randf() * TAU)
 	main.blood.stamp(global_position + dir * 9.0, Vector2(0.4, 0.3), dir.angle())
@@ -102,6 +94,7 @@ func hit(dmg: float, dir: Vector2, gpos: Vector2, cut: float) -> void:
 		sever("head", dir)
 	elif cut >= 0.4 and randf() < cut * 0.3:
 		sever("arm_l" if randf() < 0.5 else "arm_r", dir)
+	refresh()
 	if hp <= 0.0 and not dead:
 		die(dir, -hp)
 
@@ -127,7 +120,7 @@ func sever(part: String, dir: Vector2) -> void:
 	main.spawn_piece(kind, to_global(off), dir, skin, hair)
 	main.blood.add_spurt(self, off, off.angle(), 7.0)
 	main.sfx.play("osso")
-	queue_redraw()
+	refresh()
 	if part == "head" and not dead:
 		die(dir, 40.0)
 
@@ -136,8 +129,10 @@ func die(dir: Vector2, over: float) -> void:
 	dead = true
 	collision_layer = 0
 	z_index = 0
+	refresh()
+	fig.fall_t = 0.25
+	fig.moving = false
 	main.on_death(self, dir, over)
-	queue_redraw()
 
 
 func _los(p: Vector2) -> bool:
@@ -223,7 +218,7 @@ func _physics_process(delta: float) -> void:
 		if dist < 110.0:
 			sleeping = false
 			alert_t = 4.0
-			queue_redraw()
+			refresh()
 		else:
 			return
 	if cop:
@@ -233,9 +228,10 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	if hp < 20.0 and randf() < 0.15:
 		main.blood.stamp(global_position, Vector2(0.12, 0.12), randf() * TAU)
-	if velocity.length() > 5.0:
+	var sp := velocity.length()
+	fig.moving = sp > 5.0
+	if sp > 5.0:
 		if not cop or not _los(p):
 			face = lerp_angle(face, velocity.angle(), 0.2)
 			rotation = face
-		ph += velocity.length() * delta * 0.12
-		queue_redraw()
+		fig.phase += sp * delta * 0.12
