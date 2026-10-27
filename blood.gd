@@ -60,7 +60,7 @@ func spray(pos: Vector2, dir: Vector2, n: int, power: float) -> void:
 
 
 func add_spurt(target: Node2D, off: Vector2, ang: float, dur: float) -> void:
-	spurts.append({"t": target, "o": off, "a": ang, "d": dur, "c": 0.0})
+	spurts.append({"t": target, "o": off, "a": ang, "d": dur * 1.4, "c": 0.0})
 
 
 func _in_wall(p: Vector2) -> bool:
@@ -97,10 +97,26 @@ func _physics_process(delta: float) -> void:
 	_update_spurts(delta)
 
 
+func _wall_splat(pos: Vector2, d: Dictionary) -> void:
+	var a: float = float(d["a"])
+	var dir: Vector2 = Vector2.from_angle(a)
+	var perp: Vector2 = Vector2(-dir.y, dir.x)
+	wall_layer.stamp(pos, Vector2(0.18 + randf() * 0.12, 0.14 + randf() * 0.10), a)
+	for i in 4:
+		var o: Vector2 = dir * (3.0 + float(i) * 5.0) + perp * randf_range(-4.0, 4.0)
+		wall_layer.stamp(pos + o, Vector2(0.07, 0.05), a)
+	if randf() < 0.5:
+		wall_layer.stamp(pos - dir * 6.0, Vector2(0.05, 0.05), 0.0)
+
+
 func _update_drops(delta: float) -> void:
 	var keep: Array = []
 	for d in drops:
-		d["p"] += d["v"] * delta
+		var np: Vector2 = d["p"] + d["v"] * delta
+		if wall_layer != null and _in_wall(np) and not _in_wall(d["p"]):
+			_wall_splat(np, d)
+			continue
+		d["p"] = np
 		d["v"] *= pow(0.02, delta)
 		d["l"] -= delta
 		if d["l"] <= 0.0 or d["v"].length() < 25.0:
@@ -126,10 +142,13 @@ func _update_spurts(delta: float) -> void:
 		var t = sp["t"]
 		if sp["d"] > 0.0 and is_instance_valid(t):
 			var pos: Vector2 = t.to_global(sp["o"])
-			var dir: Vector2 = Vector2.from_angle(float(sp["a"])).rotated(t.global_rotation)
+			var ang: float = float(sp["a"])
+			if sp["o"] == Vector2.ZERO:
+				ang = randf() * TAU
+			var dir: Vector2 = Vector2.from_angle(ang).rotated(t.global_rotation)
 			if sp["c"] >= 0.45:
 				sp["c"] = 0.0
-				spray(pos, dir, 7, 0.9)
+				spray(pos, dir, 11, 1.3)
 			elif randf() < 0.2:
 				stamp(pos + dir * randf_range(2.0, 10.0), Vector2(0.1, 0.1), randf() * TAU)
 			keep.append(sp)
