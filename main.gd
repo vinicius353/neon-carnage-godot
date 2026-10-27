@@ -1,7 +1,7 @@
 extends Node2D
 # Inicializador: confere cada arquivo do jogo antes de iniciar e mostra na tela qual falhou.
 
-const REQUIRED := ["game.gd", "blood.gd", "sfx.gd", "weapons.gd", "weapon_art.gd", "actor.gd", "piece.gd", "hud.gd"]
+const REQUIRED := ["game.gd", "blood.gd", "sfx.gd", "weapons.gd", "weapon_art.gd", "actor.gd", "piece.gd", "hud.gd", "figure.gd"]
 const OPTIONAL := ["maps.gd", "nav.gd"]
 
 
