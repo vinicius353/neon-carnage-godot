@@ -44,8 +44,10 @@ jobs:
           } > ~/.config/godot/editor_settings-4.tres
       - name: Importar recursos
         run: godot --headless --verbose --import || true
-      - name: Exportar APK
-        run: godot --headless --verbose --export-debug "Android" build/neon-carnage-godot.apk
+      - name: Exportar APK (lancamento, com reserva em debug)
+        run: |
+          godot --headless --verbose --export-release "Android" build/neon-carnage-godot.apk || godot --headless --verbose --export-debug "Android" build/neon-carnage-godot.apk
+          ls -la build
       - uses: actions/upload-artifact@v4
         with:
           name: neon-carnage-godot-apk
