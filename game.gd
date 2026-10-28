@@ -1,7 +1,8 @@
 extends Node2D
-# Jogo: mundo, jogador, câmera, interface, polícia. Gráficos BAIXO (padrão, leve) ou ALTO.
+# Jogo: mundo, jogador, câmera, interface, modos, itens e execuções. Estilo pixel (640x360).
 
 const MAP_IDS := ["casa", "banco", "hospital", "mercado"]
+const MODE_NAMES := ["MASSACRE", "HALLOWEEN", "JUGGERNAUT", "RESGATE"]
 const PROPCOL := {"bed": Color(0.78, 0.74, 0.68), "sofa": Color(0.40, 0.12, 0.16), "tv": Color(0.05, 0.07, 0.10), "tbl": Color(0.40, 0.28, 0.17), "chr": Color(0.48, 0.35, 0.20), "cnt": Color(0.65, 0.63, 0.58), "stv": Color(0.75, 0.75, 0.76), "fri": Color(0.85, 0.86, 0.86), "bks": Color(0.25, 0.17, 0.10), "wrd": Color(0.29, 0.20, 0.14), "dsk": Color(0.35, 0.25, 0.15), "plt": Color(0.18, 0.42, 0.20), "tub": Color(0.85, 0.90, 0.91), "toi": Color(0.93, 0.93, 0.93), "wsh": Color(0.80, 0.82, 0.83), "cab": Color(0.35, 0.23, 0.15), "fpl": Color(0.42, 0.25, 0.21), "nst": Color(0.35, 0.24, 0.15), "mac": Color(0.70, 0.75, 0.77), "prt": Color(0.35, 0.35, 0.38), "c": Color(0.42, 0.29, 0.17)}
 
 var Blood
@@ -12,10 +13,15 @@ var Actor
 var Piece
 var Hud
 var Figure
+var Thrown
+var Exec
 var Nav
 var map: Dictionary = {}
 var map_i := 0
+var mode := 0
 var low := true
+var fx := false
+var selftest := false
 var mw := 1600.0
 var mh := 900.0
 var nav = null
@@ -26,12 +32,18 @@ var sfx
 var weapons
 var art
 var fig
+var exec
 var player: CharacterBody2D
 var light: PointLight2D = null
 var cam: Camera2D
 var actors: Array = []
 var corpses: Array = []
 var pieces: Array = []
+var smokes: Array = []
+var items: Array = [{"n": "Granada", "c": 3}, {"n": "Flash", "c": 2}, {"n": "Molotov", "c": 2}, {"n": "Fumaca", "c": 2}, {"n": "Isca", "c": 2}]
+var item_i := 0
+var decoy_pos := Vector2.ZERO
+var decoy_t := 0.0
 var move_t := -1
 var aim_t := -1
 var move_o := Vector2.ZERO
@@ -44,14 +56,22 @@ var firing := false
 var touch_mode := false
 var shake_v := 0.0
 var php := 100.0
+var php_max := 100.0
 var pdead := false
 var death_t := 0.0
 var flash_a := 0.0
+var white_a := 0.0
 var last_flash := 0.0
 var hud_t := 0.0
+var noise := 0.0
+var noise_max := 0.0
+var timer_t := 0.0
+var elapsed := 0.0
 var police_called := false
 var clear_t := 0.0
-var win_t := 0.0
+var ended := false
+var end_t := 0.0
+var hostages_dead := 0
 var msg_t := 0.0
 var kills := 0
 var ui_buttons: Array = []
@@ -61,21 +81,24 @@ var pause_label: Label
 var msg_label: Label
 var warn_label: Label
 var dmg_rect: ColorRect
+var luz_btn: Button
+var st_t := 0.0
+var st_w := -1
+var st_i := -1
 
 
 func _ready() -> void:
 	randomize()
+	Engine.time_scale = 1.0
+	selftest = OS.get_cmdline_user_args().has("selftest")
 	low = int(get_tree().root.get_meta("gfx", 0)) == 0
+	fx = int(get_tree().root.get_meta("fx", 0)) == 1
+	mode = int(get_tree().root.get_meta("mode", 0))
 	var win: Window = get_window()
-	if low:
-		win.content_scale_mode = Window.CONTENT_SCALE_MODE_VIEWPORT
-		win.content_scale_size = Vector2i(960, 540)
-		Engine.physics_ticks_per_second = 30
-	else:
-		win.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
-		win.content_scale_size = Vector2i(1280, 720)
-		Engine.physics_ticks_per_second = 60
+	win.content_scale_mode = Window.CONTENT_SCALE_MODE_VIEWPORT
+	win.content_scale_size = Vector2i(640, 360)
 	win.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND
+	Engine.physics_ticks_per_second = 30 if low else 60
 	Blood = load("res://blood.gd")
 	Sfx = load("res://sfx.gd")
 	Weapons = load("res://weapons.gd")
@@ -84,7 +107,11 @@ func _ready() -> void:
 	Piece = load("res://piece.gd")
 	Hud = load("res://hud.gd")
 	Figure = load("res://figure.gd")
+	Thrown = load("res://thrown.gd")
+	Exec = load("res://exec.gd")
 	map_i = int(get_tree().root.get_meta("map_i", 0))
+	if mode == 1:
+		map_i = 0
 	var bad_opt: Array = get_meta("bad_opt", [])
 	if bad_opt.is_empty():
 		var maps = load("res://maps.gd").new()
@@ -102,12 +129,35 @@ func _ready() -> void:
 	add_child(weapons)
 	weapons.load_list()
 	weapons.select(0)
+	exec = Exec.new()
+	exec.main = self
+	add_child(exec)
+	if mode == 2:
+		php = 250.0
+		for i in weapons.list.size():
+			if weapons.list[i]["nome"] == "Minigun":
+				weapons.select(i)
+		timer_t = 75.0
+	elif mode == 0:
+		timer_t = 90.0
+	php_max = php
 	_spawn_wave()
 	_make_ui()
 	if not bad_opt.is_empty():
 		warn_label.text = "AVISO: nao carregou " + ", ".join(bad_opt)
 	get_viewport().size_changed.connect(_layout)
 	_layout()
+	msg(_objective())
+
+
+func _objective() -> String:
+	if mode == 0:
+		return "MATE TODOS ANTES DO TEMPO"
+	if mode == 1:
+		return "MATE A FAMILIA EM SILENCIO"
+	if mode == 2:
+		return "MINIGUN. LIMPE O LUGAR"
+	return "ELIMINE OS TERRORISTAS"
 
 
 func _builtin_map() -> Dictionary:
@@ -144,6 +194,12 @@ func _block(r: Rect2, col: Color, solid: bool, kind: String) -> void:
 			poly.polygon = PackedVector2Array([Vector2(0, 0), Vector2(r.size.x, 0), r.size, Vector2(0, r.size.y)])
 			oc.occluder = poly
 			b.add_child(oc)
+	if kind == "":
+		var face := ColorRect.new()
+		face.color = Color(col.r * 0.55, col.g * 0.55, col.b * 0.55, 1.0)
+		face.position = Vector2(0, r.size.y)
+		face.size = Vector2(r.size.x, 5.0)
+		b.add_child(face)
 	var vis := ColorRect.new()
 	vis.color = col
 	vis.size = r.size
@@ -194,6 +250,8 @@ func _build_world() -> void:
 	wall_blood = Blood.new()
 	add_child(wall_blood)
 	wall_blood.setup(Vector2i(int(mw), int(mh)), 1, soft)
+	blood.disp.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	wall_blood.disp.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	blood.wall_layer = wall_blood
 	var solids: Array = []
 	for w in map["walls"]:
@@ -273,7 +331,7 @@ func _free_spot() -> Vector2:
 	return Vector2(randf_range(100.0, mw - 100.0), randf_range(100.0, mh - 100.0))
 
 
-func _make_civ(pos: Vector2, sleeping: bool) -> void:
+func _make_civ(pos: Vector2, sleeping: bool):
 	var a = Actor.new()
 	add_child(a)
 	a.setup(self, pos)
@@ -283,9 +341,22 @@ func _make_civ(pos: Vector2, sleeping: bool) -> void:
 		a.face = a.rotation
 	a.refresh()
 	actors.append(a)
+	return a
 
 
 func _spawn_wave() -> void:
+	if mode == 3:
+		for i in 5:
+			var h = _make_civ(_free_spot(), false)
+			h.hostage = true
+		for i in 3:
+			var ter = _make_civ(_free_spot(), false)
+			ter.terror = true
+			ter.hp = 60.0
+			ter.hp0 = 60.0
+			ter.shirt = Color(0.45, 0.08, 0.08)
+			ter.refresh()
+		return
 	var count := int(map.get("civ", 10))
 	var n := 0
 	for s in map.get("sleepers", []):
@@ -300,6 +371,8 @@ func _spawn_wave() -> void:
 
 
 func call_police() -> void:
+	if police_called:
+		return
 	var e := Vector2(map["entry"][0], map["entry"][1])
 	for i in 3:
 		var pos := e + Vector2(randf_range(-40.0, 40.0), randf_range(-40.0, 40.0))
@@ -324,20 +397,40 @@ func call_police() -> void:
 func civis_count() -> int:
 	var n := 0
 	for a in actors:
-		if not a.cop:
+		if not a.cop and not a.terror:
 			n += 1
 	return n
 
 
+func terror_count() -> int:
+	var n := 0
+	for a in actors:
+		if a.terror:
+			n += 1
+	return n
+
+
+func in_smoke(p: Vector2) -> bool:
+	for s in smokes:
+		if is_instance_valid(s) and s.state == "smoke" and s.position.distance_to(p) < 62.0:
+			return true
+	return false
+
+
+func add_noise(v: float) -> void:
+	noise = minf(120.0, noise + v)
+
+
 func msg(t: String) -> void:
 	msg_label.text = t
-	msg_t = 2.5
+	msg_t = 3.0
 
 
 func _btn(parent: Node, txt: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = txt
 	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", 9)
 	b.pressed.connect(cb)
 	parent.add_child(b)
 	ui_buttons.append(b)
@@ -345,27 +438,21 @@ func _btn(parent: Node, txt: String, cb: Callable) -> Button:
 
 
 func _make_ui() -> void:
+	if fx:
+		var fl := CanvasLayer.new()
+		fl.layer = 2
+		add_child(fl)
+		var cr := ColorRect.new()
+		cr.set_anchors_preset(Control.PRESET_FULL_RECT)
+		cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var sm := ShaderMaterial.new()
+		sm.shader = load("res://pixel_fx.gdshader")
+		cr.material = sm
+		fl.add_child(cr)
 	var cl := CanvasLayer.new()
+	cl.layer = 5
 	cl.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(cl)
-	if low:
-		var vg := Gradient.new()
-		vg.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
-		vg.colors = PackedColorArray([Color(0, 0, 0, 0), Color(0, 0, 0, 0), Color(0, 0, 0, 0.7)])
-		var vt := GradientTexture2D.new()
-		vt.gradient = vg
-		vt.fill = GradientTexture2D.FILL_RADIAL
-		vt.fill_from = Vector2(0.5, 0.5)
-		vt.fill_to = Vector2(0.5, 0.0)
-		vt.width = 128
-		vt.height = 128
-		var vr := TextureRect.new()
-		vr.texture = vt
-		vr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		vr.stretch_mode = TextureRect.STRETCH_SCALE
-		vr.set_anchors_preset(Control.PRESET_FULL_RECT)
-		vr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		cl.add_child(vr)
 	dmg_rect = ColorRect.new()
 	dmg_rect.color = Color(0.7, 0.0, 0.0, 0.0)
 	dmg_rect.size = Vector2(4000, 3000)
@@ -377,29 +464,37 @@ func _make_ui() -> void:
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cl.add_child(hud)
 	name_label = Label.new()
+	name_label.add_theme_font_size_override("font_size", 10)
 	cl.add_child(name_label)
 	warn_label = Label.new()
-	warn_label.position = Vector2(14, 100)
+	warn_label.add_theme_font_size_override("font_size", 9)
+	warn_label.position = Vector2(6, 64)
 	cl.add_child(warn_label)
 	debug_label = Label.new()
+	debug_label.add_theme_font_size_override("font_size", 9)
 	debug_label.visible = false
-	debug_label.position = Vector2(14, 130)
+	debug_label.position = Vector2(6, 80)
 	cl.add_child(debug_label)
 	pause_label = Label.new()
 	pause_label.text = "PAUSADO"
 	pause_label.visible = false
-	pause_label.add_theme_font_size_override("font_size", 48)
+	pause_label.add_theme_font_size_override("font_size", 24)
 	cl.add_child(pause_label)
 	msg_label = Label.new()
-	msg_label.add_theme_font_size_override("font_size", 40)
+	msg_label.add_theme_font_size_override("font_size", 18)
 	cl.add_child(msg_label)
 	_btn(cl, "<", func(): weapons.select(weapons.idx - 1))
 	_btn(cl, ">", func(): weapons.select(weapons.idx + 1))
 	_btn(cl, "R", func(): weapons.manual_reload())
+	_btn(cl, "EXEC", _exec_btn)
+	_btn(cl, "ITEM", func(): item_i = (item_i + 1) % items.size())
+	_btn(cl, "LANCAR", throw_item)
+	_btn(cl, "MODO", _next_mode)
 	_btn(cl, "MAPA", _next_map)
-	_btn(cl, "POLICIA", _police_btn)
-	var gb := _btn(cl, "GFX", _toggle_gfx)
-	gb.text = "GFX:B" if low else "GFX:A"
+	luz_btn = _btn(cl, "LUZ", _toggle_gfx)
+	luz_btn.text = "LUZ:N" if low else "LUZ:S"
+	var fxb := _btn(cl, "FX", _toggle_fx)
+	fxb.text = "FX:S" if fx else "FX:N"
 	_btn(cl, "DBG", func(): debug_label.visible = not debug_label.visible)
 	_btn(cl, "II", _toggle_pause)
 	_btn(cl, "NOVO", _restart)
@@ -407,23 +502,28 @@ func _make_ui() -> void:
 
 func _layout() -> void:
 	var vs := get_viewport().get_visible_rect().size
-	var bw := 78.0
-	var x := vs.x - 10.0 - bw
-	var y := 10.0
+	var bw := 46.0
+	var bh := 24.0
+	var cols := 6
+	var i := 0
 	for b in ui_buttons:
-		if x < 10.0:
-			x = vs.x - 10.0 - bw
-			y += 58.0
-		b.size = Vector2(bw, 52)
-		b.position = Vector2(x, y)
-		x -= bw + 8.0
-	name_label.position = Vector2(14, 10)
-	pause_label.position = Vector2(vs.x * 0.5 - 130.0, vs.y * 0.5 - 40.0)
-	msg_label.position = Vector2(vs.x * 0.5 - 200.0, vs.y * 0.35)
+		var col: int = i % cols
+		var row: int = int(i / cols)
+		b.size = Vector2(bw, bh)
+		b.position = Vector2(vs.x - 6.0 - (bw + 4.0) * float(col + 1) + 4.0, 6.0 + (bh + 4.0) * float(row))
+		i += 1
+	name_label.position = Vector2(6, 4)
+	pause_label.position = Vector2(vs.x * 0.5 - 60.0, vs.y * 0.5 - 20.0)
+	msg_label.position = Vector2(vs.x * 0.5 - 130.0, vs.y * 0.3)
 
 
 func _next_map() -> void:
 	get_tree().root.set_meta("map_i", (map_i + 1) % MAP_IDS.size())
+	_restart()
+
+
+func _next_mode() -> void:
+	get_tree().root.set_meta("mode", (mode + 1) % MODE_NAMES.size())
 	_restart()
 
 
@@ -432,9 +532,9 @@ func _toggle_gfx() -> void:
 	_restart()
 
 
-func _police_btn() -> void:
-	if not pdead:
-		call_police()
+func _toggle_fx() -> void:
+	get_tree().root.set_meta("fx", 0 if fx else 1)
+	_restart()
 
 
 func _toggle_pause() -> void:
@@ -443,8 +543,45 @@ func _toggle_pause() -> void:
 
 
 func _restart() -> void:
+	Engine.time_scale = 1.0
 	get_tree().paused = false
 	get_tree().reload_current_scene()
+
+
+func throw_item() -> void:
+	if pdead or exec.busy:
+		return
+	var it: Dictionary = items[item_i]
+	if int(it["c"]) <= 0:
+		msg("SEM ITEM")
+		return
+	it["c"] = int(it["c"]) - 1
+	var t = Thrown.new()
+	t.main = self
+	t.kind = str(it["n"])
+	t.position = player.global_position + aim_v * 16.0
+	t.vel = aim_v * 320.0
+	add_child(t)
+	sfx.play("swish")
+
+
+func _exec_btn() -> void:
+	if exec.busy or pdead:
+		return
+	var best = null
+	var bd := 50.0
+	for a in actors:
+		if a.dead or a.held:
+			continue
+		var d: float = a.global_position.distance_to(player.global_position)
+		if d < bd and (a.sleeping or a.legs_dmg >= 40.0 or a.stun > 0.0 or a.hp < 14.0):
+			bd = d
+			best = a
+	if best == null:
+		msg("SEM ALVO")
+		return
+	if not exec.begin(best, str(weapons.cur()["nome"])):
+		msg("SEM EXECUCAO")
 
 
 func _over_button(p: Vector2) -> bool:
@@ -480,11 +617,11 @@ func _input(e: InputEvent) -> void:
 	elif e is InputEventScreenDrag:
 		if e.index == move_t:
 			move_pos = e.position
-			move_v = ((e.position - move_o) / 70.0).limit_length(1.0)
+			move_v = ((e.position - move_o) / 36.0).limit_length(1.0)
 		elif e.index == aim_t:
 			aim_pos = e.position
 			var d: Vector2 = e.position - aim_o
-			if d.length() > 10.0:
+			if d.length() > 6.0:
 				aim_v = d.normalized()
 	elif e is InputEventKey and e.pressed and not e.echo:
 		if e.keycode == KEY_Q:
@@ -493,6 +630,10 @@ func _input(e: InputEvent) -> void:
 			weapons.select(weapons.idx + 1)
 		elif e.keycode == KEY_R:
 			weapons.manual_reload()
+		elif e.keycode == KEY_F:
+			_exec_btn()
+		elif e.keycode == KEY_G:
+			throw_item()
 		elif e.keycode == KEY_P:
 			_toggle_pause()
 
@@ -541,24 +682,134 @@ func _update_label() -> void:
 		am = "%d/%d" % [int(weapons.ammo[nm]), int(weapons.reserve[nm])]
 		if weapons.reload_t > 0.0:
 			am += " recarregando"
-	name_label.text = "HP %d   %s   %s   civis: %d   mortes: %d" % [int(php), w["nome"], am, civis_count(), kills]
+	var extra := ""
+	if mode == 1:
+		extra = "ruido %d%%" % int(noise)
+	elif mode == 3:
+		extra = "refens mortos %d/2 terroristas %d" % [hostages_dead, terror_count()]
+	elif timer_t > 0.0 and not police_called:
+		extra = "tempo %d" % int(timer_t)
+	var it: Dictionary = items[item_i]
+	name_label.text = "HP %d  %s  %s\n%s  %s  civis %d  item %s x%d" % [int(php), w["nome"], am, MODE_NAMES[mode], extra, civis_count(), it["n"], int(it["c"])]
+
+
+func _horde_logic(delta: float) -> void:
+	if timer_t > 0.0 and not police_called:
+		timer_t -= delta
+		if timer_t <= 0.0:
+			call_police()
+	if mode == 1 and not police_called and noise >= 100.0:
+		msg("OUVIRAM TUDO")
+		call_police()
+	if not police_called and civis_count() == 0 and not ended:
+		if mode == 1:
+			_finish_halloween()
+		else:
+			clear_t += delta
+			if clear_t > 2.0:
+				call_police()
+	if police_called and actors.is_empty() and not ended:
+		ended = true
+		end_t = 4.0
+		msg("NAO SOBROU NINGUEM")
+	if ended:
+		end_t -= delta
+		if end_t <= 0.0:
+			_restart()
+
+
+func _finish_halloween() -> void:
+	ended = true
+	end_t = 5.0
+	var sil: int = 100 - int(noise_max)
+	var pts: int = sil * 5 + maxi(0, 300 - int(elapsed))
+	var g := "C"
+	if pts >= 750:
+		g = "S"
+	elif pts >= 600:
+		g = "A"
+	elif pts >= 450:
+		g = "B"
+	msg("NOTA %s  silencio %d%%" % [g, sil])
+
+
+func _resgate_logic(delta: float) -> void:
+	if not ended:
+		if terror_count() == 0:
+			ended = true
+			end_t = 4.0
+			msg("RESGATE CONCLUIDO")
+		elif hostages_dead >= 2:
+			ended = true
+			end_t = 4.0
+			msg("REFENS MORTOS")
+	else:
+		end_t -= delta
+		if end_t <= 0.0:
+			_restart()
+
+
+func _selftest(delta: float) -> void:
+	st_t += delta
+	var best = null
+	var bd := 1000000.0
+	for a in actors:
+		var d: float = a.global_position.distance_to(player.global_position)
+		if d < bd and not a.dead:
+			bd = d
+			best = a
+	if best != null:
+		aim_v = (best.global_position - player.global_position).normalized()
+		if bd > 60.0 and not exec.busy:
+			player.global_position = player.global_position.move_toward(best.global_position, 120.0 * delta)
+	firing = true
+	var wi: int = int(st_t / 1.0) % weapons.list.size()
+	if wi != st_w:
+		st_w = wi
+		weapons.select(wi)
+	var si: int = int(st_t * 2.0)
+	if si != st_i:
+		st_i = si
+		if si % 4 == 0:
+			item_i = (item_i + 1) % items.size()
+			items[item_i]["c"] = 3
+			throw_item()
+		if si % 9 == 0 and best != null:
+			best.sleeping = true
+			_exec_btn()
+	if st_t > 8.0 and not police_called and mode != 3:
+		call_police()
 
 
 func _physics_process(delta: float) -> void:
 	flash_a = maxf(0.0, flash_a - delta * 1.5)
-	if flash_a > 0.0 or last_flash > 0.0:
-		dmg_rect.color = Color(0.7, 0.0, 0.0, flash_a)
-	last_flash = flash_a
+	white_a = maxf(0.0, white_a - delta * 1.2)
+	if flash_a > 0.0 or white_a > 0.0 or last_flash > 0.0:
+		if white_a > 0.0:
+			dmg_rect.color = Color(1, 1, 1, white_a)
+		else:
+			dmg_rect.color = Color(0.7, 0.0, 0.0, flash_a)
+	last_flash = maxf(flash_a, white_a)
+	decoy_t = maxf(0.0, decoy_t - delta)
+	noise = maxf(0.0, noise - delta * 1.5)
+	noise_max = maxf(noise_max, noise)
 	if pdead:
 		death_t -= delta
 		if death_t <= 0.0:
 			_restart()
+		return
+	if exec.busy:
+		exec.update(delta)
+		fig.moving = false
+		player.velocity = Vector2.ZERO
 		return
 	var mv := move_v
 	if not touch_mode:
 		mv = Vector2(float(Input.is_key_pressed(KEY_D)) - float(Input.is_key_pressed(KEY_A)), float(Input.is_key_pressed(KEY_S)) - float(Input.is_key_pressed(KEY_W)))
 		aim_v = (get_global_mouse_position() - player.global_position).normalized()
 		firing = Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	if selftest:
+		_selftest(delta)
 	var w: Dictionary = weapons.cur()
 	player.velocity = mv.limit_length(1.0) * 170.0 * (0.7 + 0.3 * float(w["peso"]))
 	player.move_and_slide()
@@ -568,21 +819,17 @@ func _physics_process(delta: float) -> void:
 	fig.hold = _hold_for(art.art)
 	fig.swing = art.swing
 	fig.recoil = art.recoil
-	fig.blood = clampf(1.0 - php / 100.0, 0.0, 1.0)
+	fig.blood = clampf(1.0 - php / php_max, 0.0, 1.0)
 	if light != null:
 		light.energy = lerpf(light.energy, 1.3, 0.15)
 	weapons.update(delta, firing, aim_v, player.global_position + aim_v * 14.0)
 	_update_pieces()
 	_update_corpses(delta)
-	if not police_called and civis_count() == 0:
-		clear_t += delta
-		if clear_t > 2.0:
-			call_police()
-	if police_called and actors.is_empty():
-		win_t += delta
-		msg("NAO SOBROU NINGUEM")
-		if win_t > 4.0:
-			_restart()
+	elapsed += delta
+	if mode == 3:
+		_resgate_logic(delta)
+	else:
+		_horde_logic(delta)
 	hud_t -= delta
 	if hud_t <= 0.0:
 		hud_t = 0.2
@@ -592,20 +839,20 @@ func _physics_process(delta: float) -> void:
 func _process(delta: float) -> void:
 	var vs := get_viewport().get_visible_rect().size
 	var land := vs.x > vs.y
-	var zf := 0.75 if low else 1.0
-	cam.zoom = Vector2.ONE * ((1.0 if land else 1.4) * zf)
-	var look := 110.0
+	cam.zoom = Vector2.ONE * (0.8 if land else 1.2)
+	var look := 70.0
 	if weapons.cur()["nome"] == "Sniper":
-		look = 260.0
+		look = 170.0
 	var target := player.global_position + aim_v * look
-	cam.global_position = cam.global_position.lerp(target, 1.0 - exp(-8.0 * delta))
+	var np: Vector2 = cam.global_position.lerp(target, 1.0 - exp(-8.0 * delta))
+	cam.global_position = Vector2(roundf(np.x), roundf(np.y))
 	shake_v = maxf(0.0, shake_v - delta * 30.0)
-	cam.offset = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * shake_v
+	cam.offset = Vector2(roundf(randf_range(-1.0, 1.0) * shake_v), roundf(randf_range(-1.0, 1.0) * shake_v))
 	msg_t -= delta
-	if msg_t <= 0.0 and not pdead and win_t == 0.0:
+	if msg_t <= 0.0 and not pdead and not ended:
 		msg_label.text = ""
 	if debug_label.visible:
-		debug_label.text = "FPS %d  gfx %s\nmapa %s\nautores %d  pedacos %d\ngotas %d  fila %d  carimbos %d" % [Engine.get_frames_per_second(), "baixo" if low else "alto", str(map.get("name", "?")), actors.size(), pieces.size(), blood.drops.size(), blood.queue.size(), blood.live.size()]
+		debug_label.text = "FPS %d  luz %s fx %s\nmapa %s modo %s\nautores %d  pedacos %d\ngotas %d  fila %d  carimbos %d" % [Engine.get_frames_per_second(), "n" if low else "s", "s" if fx else "n", str(map.get("name", "?")), MODE_NAMES[mode], actors.size(), pieces.size(), blood.drops.size(), blood.queue.size(), blood.live.size()]
 
 
 func shake(v: float) -> void:
@@ -617,12 +864,17 @@ func shoot_fx() -> void:
 		light.energy = 2.6
 	art.flash = 0.06
 	art.recoil = 1.0
+	add_noise(4.0)
 	shake(1.5)
 
 
 func on_death(a, dir: Vector2, over: float) -> void:
 	actors.erase(a)
 	kills += 1
+	add_noise(3.0)
+	if a.hostage:
+		hostages_dead += 1
+		msg("REFEM MORTO")
 	corpses.append({"n": a, "t": 12.0})
 	blood.spray(a.global_position, dir, 14, 1.0)
 	blood.stamp(a.global_position, Vector2(0.9, 0.7), randf() * TAU)
