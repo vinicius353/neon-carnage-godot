@@ -1,5 +1,5 @@
 extends CharacterBody2D
-# Civil ou policial: ferimento por zona, desmembramento, fuga e perseguição por caminhos.
+# Civil, refém, policial ou terrorista: ferimento por zona, desmembramento, fuga e perseguição.
 # O desenho do corpo fica no figure.gd.
 
 var main = null
@@ -14,6 +14,11 @@ var legs_dmg := 0.0
 var dead := false
 var burn := 0.0
 var cop := false
+var terror := false
+var hostage := false
+var held := false
+var seen := false
+var stun := 0.0
 var sleeping := false
 var alert_t := 0.0
 var path: Array = []
@@ -59,7 +64,7 @@ func refresh() -> void:
 	fig.skin = skin
 	fig.shirt = shirt
 	fig.hair = hair
-	fig.hold = "one" if cop else "none"
+	fig.hold = "one" if (cop or terror) else "none"
 	fig.blood = clampf(1.0 - hp / hp0, 0.0, 1.0)
 	fig.queue_redraw()
 
@@ -126,6 +131,8 @@ func sever(part: String, dir: Vector2) -> void:
 
 
 func die(dir: Vector2, over: float) -> void:
+	if dead:
+		return
 	dead = true
 	collision_layer = 0
 	z_index = 0
@@ -136,6 +143,8 @@ func die(dir: Vector2, over: float) -> void:
 
 
 func _los(p: Vector2) -> bool:
+	if main.in_smoke(p):
+		return false
 	var q := PhysicsRayQueryParameters2D.create(global_position, p, 1)
 	var h := get_world_2d().direct_space_state.intersect_ray(q)
 	return h.is_empty()
@@ -154,6 +163,9 @@ func _follow(spd: float) -> void:
 
 
 func _civ_ai(delta: float, p: Vector2, dist: float, away: Vector2) -> void:
+	if hostage:
+		velocity = Vector2.ZERO
+		return
 	var spd := 150.0
 	if legs_dmg >= 40.0:
 		spd = 45.0
@@ -182,7 +194,13 @@ func _civ_ai(delta: float, p: Vector2, dist: float, away: Vector2) -> void:
 func _cop_ai(delta: float, p: Vector2, dist: float) -> void:
 	shoot_t -= delta
 	repath -= delta
-	if dist < 440.0 and _los(p):
+	var sees: bool = dist < 440.0 and _los(p)
+	if sees:
+		seen = true
+	if terror and not seen:
+		velocity = Vector2.ZERO
+		return
+	if sees:
 		face = (p - global_position).angle()
 		rotation = face
 		if shoot_t <= 0.0:
@@ -191,13 +209,16 @@ func _cop_ai(delta: float, p: Vector2, dist: float) -> void:
 		if dist < 170.0:
 			velocity = Vector2.ZERO
 			return
+	var tgt: Vector2 = p
+	if not sees and main.decoy_t > 0.0:
+		tgt = main.decoy_pos
 	if main.nav != null:
 		if repath <= 0.0:
 			repath = 0.5
-			path = main.nav.path(global_position, p)
+			path = main.nav.path(global_position, tgt)
 		_follow(110.0)
 	else:
-		velocity = (p - global_position).normalized() * 110.0
+		velocity = (tgt - global_position).normalized() * 110.0
 
 
 func _physics_process(delta: float) -> void:
@@ -211,6 +232,15 @@ func _physics_process(delta: float) -> void:
 		if hp <= 0.0:
 			die(Vector2.RIGHT, 0.0)
 			return
+	if held:
+		velocity = Vector2.ZERO
+		fig.moving = false
+		return
+	if stun > 0.0:
+		stun -= delta
+		velocity = Vector2.ZERO
+		fig.moving = false
+		return
 	var p: Vector2 = main.player.global_position
 	var away: Vector2 = global_position - p
 	var dist := away.length()
@@ -221,7 +251,7 @@ func _physics_process(delta: float) -> void:
 			refresh()
 		else:
 			return
-	if cop:
+	if cop or terror:
 		_cop_ai(delta, p, dist)
 	else:
 		_civ_ai(delta, p, dist, away)
@@ -231,7 +261,7 @@ func _physics_process(delta: float) -> void:
 	var sp := velocity.length()
 	fig.moving = sp > 5.0
 	if sp > 5.0:
-		if not cop or not _los(p):
+		if not (cop or terror) or not _los(p):
 			face = lerp_angle(face, velocity.angle(), 0.2)
 			rotation = face
 		fig.phase += sp * delta * 0.12
