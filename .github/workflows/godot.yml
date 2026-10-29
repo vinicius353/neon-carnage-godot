@@ -44,6 +44,28 @@ jobs:
           } > ~/.config/godot/editor_settings-4.tres
       - name: Importar recursos
         run: godot --headless --verbose --import || true
+      - name: Teste automatico (compila cada script e roda o jogo sem tela)
+        continue-on-error: true
+        run: |
+          mkdir -p report
+          : > report/report.txt
+          for f in *.gd; do
+            echo "== $f" >> report/report.txt
+            godot --headless --check-only --script res://$f >> report/report.txt 2>&1 || echo "FALHOU $f" >> report/report.txt
+          done
+          echo "== execucao do jogo (autoteste, 40 s simulados)" >> report/report.txt
+          timeout 150 godot --headless --fixed-fps 60 --quit-after 2400 -- selftest >> report/report.txt 2>&1 || echo "execucao terminou com codigo $?" >> report/report.txt
+          tail -c 60000 report/report.txt > report/report_tail.txt
+          mv report/report_tail.txt report/report.txt
+      - name: Salvar relatorio no repositorio
+        continue-on-error: true
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name "ci"
+          git config user.email "ci@example.com"
+          git add report/report.txt
+          git commit -m "Relatorio de testes [skip ci]" || true
+          git push || true
       - name: Exportar APK (lancamento, com reserva em debug)
         run: |
           godot --headless --verbose --export-release "Android" build/neon-carnage-godot.apk || godot --headless --verbose --export-debug "Android" build/neon-carnage-godot.apk
