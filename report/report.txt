@@ -1,0 +1,47 @@
+== actor.gd
+Godot Engine v4.2.2.stable.official.15073afe3 - https://godotengine.org
+ 
+== blood.gd
+Godot Engine v4.2.2.stable.official.15073afe3 - https://godotengine.org
+ 
+== exec.gd
+Godot Engine v4.2.2.stable.official.15073afe3 - https://godotengine.org
+ 
+== figure.gd
+Godot Engine v4.2.2.stable.official.15073afe3 - https://godotengine.org
+ 
+== game.gd
+Godot Engine v4.2.2.stable.official.15073afe3 - https://godotengine.org
+ 
+== hud.gd
+Godot Engine v4.2.2.stable.official.15073afe3 - https://godotengine.org
+ 
+== main.gd
+Godot Engine v4.2.2.stable.official.15073afe3 - https://godotengine.org
+ 
+== maps.gd
+Godot Engine v4.2.2.stable.official.15073afe3 - https://godotengine.org
+ 
+== nav.gd
+Godot Engine v4.2.2.stable.official.15073afe3 - https://godotengine.org
+ 
+== piece.gd
+Godot Engine v4.2.2.stable.official.15073afe3 - https://godotengine.org
+ 
+== sfx.gd
+Godot Engine v4.2.2.stable.official.15073afe3 - https://godotengine.org
+ 
+== thrown.gd
+Godot Engine v4.2.2.stable.official.15073afe3 - https://godotengine.org
+ 
+== weapon_art.gd
+Godot Engine v4.2.2.stable.official.15073afe3 - https://godotengine.org
+ 
+== weapons.gd
+Godot Engine v4.2.2.stable.official.15073afe3 - https://godotengine.org
+ 
+== execucao do jogo (autoteste, 40 s simulados)
+Godot Engine v4.2.2.stable.official.15073afe3 - https://godotengine.org
+ 
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+     at: cleanup (core/object/object.cpp:2209)
