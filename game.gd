@@ -203,7 +203,9 @@ func _make_soft() -> void:
 
 
 func _make_splats() -> Array:
-	# Respingos irregulares gerados na hora: mancha com borda rasgada + gotas soltas.
+	# Respingos irregulares gerados na hora: mancha de borda rasgada + gotas soltas.
+	# Cada textura é diferente — antes a variável de imagem ficava fora do laço e o
+	# jogo usava praticamente uma mancha só, o que deixava todo respingo idêntico.
 	var out: Array = []
 	for v in 6:
 		var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
@@ -222,11 +224,14 @@ func _make_splats() -> Array:
 				var ang := atan2(dy, dx)
 				var wob := sin(ang * w0 + p0) * 0.11 + sin(ang * w1 + p1) * 0.06 + sin(ang * w2 + p2) * 0.035
 				var lim := 0.70 + wob
-				var a := clampf(1.0 - d / maxf(0.06, lim), 0.0, 1.0)
-				a = pow(a, 0.8)
+				# Borda nítida: sangue espalhado tem contorno definido, não esfumaçado.
+				# O miolo sai denso e a beirada vira película fina — o shader lê a densidade.
+				var e: float = clampf((lim - d) / 0.045, 0.0, 1.0)
+				var a: float = e * (0.42 + 0.58 * clampf((lim - d) / maxf(0.05, lim * 0.7), 0.0, 1.0))
 				if a > 0.01:
 					img.set_pixel(x, y, Color(1, 1, 1, a))
-		for i in 8:
+		# gotas satélite: arremesso nenhum é uma mancha só
+		for i in 12:
 			var sa := randf() * TAU
 			var sr := 0.80 + randf() * 0.45
 			var cx := 31.5 + cos(sa) * sr * 27.0
@@ -237,17 +242,19 @@ func _make_splats() -> Array:
 			var x1 := mini(63, int(cx + rr + 1.0))
 			var y0 := maxi(0, int(cy - rr - 1.0))
 			var y1 := mini(63, int(cy + rr + 1.0))
-			for y in range(y0, y1 + 1):
-				for x in range(x0, x1 + 1):
-					var ddx := float(x) - cx
-					var ddy := float(y) - cy
+			for yy in range(y0, y1 + 1):
+				for xx in range(x0, x1 + 1):
+					var ddx := float(xx) - cx
+					var ddy := float(yy) - cy
 					var dd := sqrt(ddx * ddx + ddy * ddy)
 					if dd <= rr:
-						var aa := (1.0 - dd / maxf(0.4, rr)) * al
-						if img.get_pixel(x, y).a < aa:
-							img.set_pixel(x, y, Color(1, 1, 1, aa))
+						# a 1 px do chão a gota não borra: borda dura
+						var aa: float = clampf((rr - dd) / 0.8, 0.0, 1.0) * al
+						if img.get_pixel(xx, yy).a < aa:
+							img.set_pixel(xx, yy, Color(1, 1, 1, aa))
 		out.append(ImageTexture.create_from_image(img))
 	return out
+
 
 
 func _block(r: Rect2, col: Color, solid: bool, kind: String) -> void:
@@ -524,16 +531,33 @@ func msg(t: String) -> void:
 	msg_t = 3.0
 
 
-func _btn(parent: Node, txt: String, cb: Callable) -> Button:
+func _btn(parent: Node, txt: String, cb: Callable, hot: bool = false) -> Button:
 	var b := Button.new()
 	b.text = txt
 	b.focus_mode = Control.FOCUS_NONE
-	b.add_theme_font_size_override("font_size", 11)
+	b.add_theme_font_size_override("font_size", 12)
+	b.add_theme_color_override("font_color", Color(0.96, 0.93, 0.89))
+	b.add_theme_color_override("font_pressed_color", Color(1.0, 0.90, 0.86))
+	var base := Color(0.42, 0.045, 0.05, 0.82) if hot else Color(0.06, 0.05, 0.055, 0.72)
+	var edge := Color(1.0, 0.40, 0.32, 0.85) if hot else Color(0.86, 0.72, 0.66, 0.42)
+	b.add_theme_stylebox_override("normal", _round_box(base, edge))
+	b.add_theme_stylebox_override("hover", _round_box(base.lightened(0.12), edge))
+	b.add_theme_stylebox_override("pressed", _round_box(base.lightened(0.30), edge.lightened(0.35)))
 	b.pressed.connect(cb)
 	b.pressed.connect(func(): if sfx != null: sfx.play("ui", 1.1))
 	parent.add_child(b)
 	ui_buttons.append(b)
 	return b
+
+
+func _round_box(bg: Color, edge: Color) -> StyleBoxFlat:
+	# Botão redondo: raio 23 = metade do lado 46 usado pelo layout de anel.
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.border_color = edge
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(23)
+	return sb
 
 
 func _make_ui() -> void:
@@ -587,7 +611,7 @@ func _make_ui() -> void:
 	_btn(cl, "<", func(): weapons.select(weapons.idx - 1))
 	_btn(cl, ">", func(): weapons.select(weapons.idx + 1))
 	_btn(cl, "REC", func(): weapons.manual_reload())
-	_btn(cl, "EXEC", _exec_btn)
+	_btn(cl, "EXEC", _exec_btn, true)
 	_btn(cl, "ITEM", func(): item_i = (item_i + 1) % items.size())
 	_btn(cl, "USA", throw_item)
 	_btn(cl, "II", _toggle_pause)
@@ -618,28 +642,30 @@ func _make_ui() -> void:
 	_panel_btn(end_panel, "MENU", _to_menu, 88.0)
 
 
+func _aim_center(vs: Vector2) -> Vector2:
+	# Centro do analógico de mirar: é o eixo do anel de botões e o ponto onde o
+	# polegar direito descansa por padrão.
+	return Vector2(vs.x - 108.0, vs.y - 108.0)
+
+
 func _layout() -> void:
-	# Layout de celular: cada ação num bloco perto do polegar, botões grandes e
-	# agrupados (arma à esquerda embaixo, item/lançar ao lado, execução à direita).
+	# Celular: o polegar direito mora no analógico de mirar, então as ações formam
+	# um anel em volta dele — arma, recarga, execução, item e arremesso ficam a um
+	# deslize do dedo, sem soltar o stick.
 	var vs := get_viewport().get_visible_rect().size
-	var bh := 34.0
-	var by := vs.y - bh - 10.0
+	var center := _aim_center(vs)
 	if ui_buttons.size() >= 7:
-		var xs := 130.0
-		for i in 3:
+		var dia := 46.0
+		for i in 6:
 			var b: Button = ui_buttons[i]
-			var bw := 46.0 if i < 2 else 54.0
-			b.size = Vector2(bw, bh)
-			b.position = Vector2(xs, by)
-			xs += bw + 6.0
-		ui_buttons[4].size = Vector2(56, bh)
-		ui_buttons[4].position = Vector2(320, by)
-		ui_buttons[5].size = Vector2(80, bh)
-		ui_buttons[5].position = Vector2(382, by)
-		ui_buttons[3].size = Vector2(76, 42)
-		ui_buttons[3].position = Vector2(vs.x - 84, vs.y * 0.38)
-		ui_buttons[6].size = Vector2(46, 30)
-		ui_buttons[6].position = Vector2(vs.x - 54, 8)
+			var ang := deg_to_rad(163.0 + 25.4 * float(i))
+			var c: Vector2 = center + Vector2.from_angle(ang) * 104.0
+			b.size = Vector2(dia, dia)
+			b.position = c - Vector2(dia, dia) * 0.5
+			b.set_meta("hit", dia * 0.5 + 5.0)
+		ui_buttons[6].size = Vector2(46, 46)
+		ui_buttons[6].position = Vector2(vs.x - 56, 8)
+		ui_buttons[6].set_meta("hit", 28.0)
 	name_label.position = Vector2(8, 22)
 	stat_label.position = Vector2(8, 37)
 	count_label.position = Vector2(8, 51)
@@ -769,7 +795,12 @@ func _exec_btn() -> void:
 
 func _over_button(p: Vector2) -> bool:
 	for b in ui_buttons:
-		if b.get_global_rect().grow(6.0).has_point(p):
+		var hr: float = float(b.get_meta("hit", 0.0))
+		if hr > 0.0:
+			# botão redondo acerta pelo círculo: os cantos da caixa não contam
+			if b.get_global_rect().get_center().distance_to(p) <= hr:
+				return true
+		elif b.get_global_rect().grow(6.0).has_point(p):
 			return true
 	return false
 
@@ -832,8 +863,7 @@ func hurt_player(d: float, from: Vector2 = Vector2.ZERO) -> void:
 	flash_a = 0.45
 	shake(4.0)
 	fig.kick = Vector2.from_angle(randf() * TAU) * 3.0
-	blood.stamp(player.global_position, Vector2(0.3, 0.3), randf() * TAU, BLOOD_ART)
-	blood.spray(player.global_position, Vector2.from_angle(randf() * TAU), 7, 0.9, BLOOD_ART)
+	blood.splash(player.global_position, Vector2.from_angle(randf() * TAU), 0.75, BLOOD_ART)
 	if php <= 0.0:
 		pdead = true
 		death_t = 2.5
@@ -1090,8 +1120,8 @@ func on_death(a, dir: Vector2, over: float) -> void:
 		var old = corpses.pop_front()
 		if is_instance_valid(old["n"]):
 			old["n"].queue_free()
-	blood.spray(a.global_position, dir, 20, 1.25, BLOOD_ART)
-	blood.stamp(a.global_position, Vector2(1.0, 0.8), randf() * TAU, BLOOD_ART)
+	blood.splash(a.global_position, dir, 1.35, BLOOD_ART)
+	blood.stamp(a.global_position, Vector2(0.95, 0.8), randf() * TAU, BLOOD_ART)
 	hitstop(0.05)
 	# abate violento empurra a câmera: fecha o golpe
 	shake(3.0 + minf(over * 0.12, 5.0))

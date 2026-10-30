@@ -15,8 +15,8 @@ func _draw() -> void:
 	if main == null:
 		return
 	var vs := get_viewport_rect().size
-	var mo: Vector2 = main.move_o if main.move_t != -1 else Vector2(80, vs.y - 80)
-	var ao: Vector2 = main.aim_o if main.aim_t != -1 else Vector2(vs.x - 80, vs.y - 80)
+	var mo: Vector2 = main.move_o if main.move_t != -1 else Vector2(104, vs.y - 104)
+	var ao: Vector2 = main.aim_o if main.aim_t != -1 else Vector2(vs.x - 108, vs.y - 108)
 	_stick(mo, main.move_pos, main.move_t != -1)
 	_stick(ao, main.aim_pos, main.aim_t != -1)
 	if main.player == null:

@@ -107,7 +107,32 @@ func stamp_lo(pos: Vector2, sc: Vector2, rot: float, col: Color = Color(0.5, 0.0
 		queue_lo.append([pos, sc, rot, col])
 
 
+func _tint(c: Color) -> Color:
+	# Nenhum jato tem exatamente a mesma cor: oxigenado (vivo) x venoso (escuro)
+	# variam a cada golpe — é isso que faz a mancha parecer suja e não pintada.
+	return Color(clampf(c.r * randf_range(0.84, 1.10), 0.0, 1.0), c.g * randf_range(0.55, 1.25), c.b * randf_range(0.65, 1.40), c.a)
+
+
+func splash(pos: Vector2, dir: Vector2, power: float = 1.0, col: Color = Color(0.46, 0.01, 0.025, 0.95)) -> void:
+	# Padrão de impacto: poça irregular no ponto do golpe, estrias compridas no
+	# sentido da força (cast-off) e névoa fina de gotas ao redor.
+	var c := _tint(col)
+	var a := dir.angle()
+	stamp(pos, Vector2(0.24, 0.20) * power, randf() * TAU, c)
+	for i in 2 + randi() % 2:
+		var off: Vector2 = Vector2.from_angle(a + randf_range(-0.9, 0.9)) * randf_range(1.5, 6.0) * power
+		stamp(pos + off, Vector2(0.12, 0.10) * power * randf_range(0.8, 1.5), randf() * TAU, c)
+	for i in 2 + randi() % 3:
+		var sa: float = a + randf_range(-0.55, 0.55)
+		var sd: Vector2 = Vector2.from_angle(sa)
+		for j in 2 + randi() % 2:
+			var dist: float = (9.0 + randf() * 40.0) * power
+			stamp(pos + sd * dist, Vector2(0.09 + randf() * 0.11, 0.04 + randf() * 0.045), sa, c)
+	spray(pos, dir, int(clampf(4.0 + 6.0 * power, 4.0, 18.0)), power, c)
+
+
 func spray(pos: Vector2, dir: Vector2, n: int, power: float, col: Color = Color(0.5, 0.0, 0.04, 0.9)) -> void:
+	col = _tint(col)
 	var lobes: Array = []
 	for i in 1 + randi() % 3:
 		lobes.append(randf_range(-0.75, 0.75))
@@ -216,12 +241,19 @@ func _update_drops(delta: float) -> void:
 			if wall_layer != null and _in_wall(p):
 				target = wall_layer
 			var col: Color = d["c"]
-			var sx: float = 0.10 + randf() * 0.12 + float(d["s"]) * 0.0008
-			var sc := Vector2(sx, 0.08 + randf() * 0.1)
+			# Gota rápida marca estria comprida no sentido da viagem; devagar vira pingo
+			# redondo. É o alongamento que dá leitura de velocidade, não o tamanho.
+			var spd: float = float(d["s"])
+			var st: float = clampf(spd / 420.0, 0.1, 1.0)
+			var sx: float = (0.07 + randf() * 0.08 + spd * 0.0006) * (1.0 + st * 2.1)
+			var sy: float = (0.05 + randf() * 0.06) * (1.0 - st * 0.3)
+			var sc := Vector2(sx, sy)
+			var vm: Vector2 = d["v"]
+			var rot: float = vm.angle() if vm.length() > 1.0 else float(d["a"])
 			if busy:
-				target.stamp_lo(p, sc, float(d["a"]), col)
+				target.stamp_lo(p, sc, rot, col)
 			else:
-				target.stamp(p, sc, float(d["a"]), col)
+				target.stamp(p, sc, rot, col)
 			if float(d["s"]) > 250.0:
 				var off: Vector2 = Vector2.from_angle(float(d["a"])) * (10.0 + randf() * 20.0)
 				target.stamp_lo(p + off, Vector2(0.05, 0.05), 0.0, col)

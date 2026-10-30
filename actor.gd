@@ -95,9 +95,8 @@ func hit(dmg: float, dir: Vector2, gpos: Vector2, cut: float) -> void:
 	hp -= d
 	fig.kick = dir * 3.0
 	var bcol: Color = main.BLOOD_ART if zone == "head" else main.BLOOD_VEN
-	main.blood.spray(gpos, dir, 6 if hp > 0.0 else 18, 1.0, bcol)
-	main.blood.stamp(gpos, Vector2(0.3, 0.3), randf() * TAU, bcol)
-	main.blood.stamp(global_position + dir * 9.0, Vector2(0.4, 0.3), dir.angle(), bcol)
+	# impacto completo: poça + estrias no sentido do golpe + névoa de gotas
+	main.blood.splash(gpos, dir, 1.15 if hp <= 0.0 else 0.9, bcol)
 	main.on_hit()
 	if zone == "arm" and cut > 0.0 and randf() < cut + float(arm_dmg[si]) / 100.0:
 		sever("arm_l" if si == 0 else "arm_r", dir)
