@@ -1,21 +1,44 @@
 extends Node2D
 # Camada de sangue em meia resolução: só redesenha quando há carimbos novos.
+# Performance: pool de sprites (sem criar/destruir por carimbo), orçamento
+# adaptativo ao tempo de frame, duas filas (combate > poças cosméticas) e
+# teste de parede O(1) por grade.
+
+const CELL := 24.0
+const HI_MAX := 420
+const LO_MAX := 240
 
 var vp: SubViewport
 var holder: Node2D
 var disp: Sprite2D
 var soft: GradientTexture2D
+var splats: Array = []
 var drops: Array = []
 var queue: Array = []
+var queue_lo: Array = []
 var live: Array = []
+var spare: Array = []
 var spurts: Array = []
 var wall_layer = null
-var wall_rects: Array = []
 var shown := false
 
+var _rects: Array = []
+var wall_rects: Array = []:
+	set(v):
+		_rects = v
+		_build_grid()
 
-func setup(sz: Vector2i, z: int, soft_tex: GradientTexture2D) -> void:
+var world := Vector2i(1600, 900)
+var gcols := 0
+var grows := 0
+var grid := PackedByteArray()
+var frame_avg := 0.016
+
+
+func setup(sz: Vector2i, z: int, soft_tex: GradientTexture2D, splat_texs: Array = []) -> void:
 	soft = soft_tex
+	splats = splat_texs
+	world = sz
 	vp = SubViewport.new()
 	vp.size = Vector2i(maxi(8, int(sz.x * 0.5)), maxi(8, int(sz.y * 0.5)))
 	vp.transparent_bg = true
@@ -37,12 +60,54 @@ func setup(sz: Vector2i, z: int, soft_tex: GradientTexture2D) -> void:
 	add_child(disp)
 
 
+func set_walls(rects: Array) -> void:
+	wall_rects = rects
+
+
+func _build_grid() -> void:
+	gcols = maxi(1, int(ceil(float(world.x) / CELL)))
+	grows = maxi(1, int(ceil(float(world.y) / CELL)))
+	grid = PackedByteArray()
+	grid.resize(gcols * grows)
+	grid.fill(0)
+	for r in _rects:
+		var rr: Rect2 = r if r is Rect2 else Rect2(r[0], r[1], r[2], r[3])
+		var x0 := clampi(int(rr.position.x / CELL), 0, gcols - 1)
+		var y0 := clampi(int(rr.position.y / CELL), 0, grows - 1)
+		var x1 := clampi(int(rr.end.x / CELL), 0, gcols - 1)
+		var y1 := clampi(int(rr.end.y / CELL), 0, grows - 1)
+		for y in range(y0, y1 + 1):
+			for x in range(x0, x1 + 1):
+				grid[y * gcols + x] = 1
+
+
+func _in_wall(p: Vector2) -> bool:
+	if gcols == 0:
+		for r in _rects:
+			var rr: Rect2 = r if r is Rect2 else Rect2(r[0], r[1], r[2], r[3])
+			if rr.has_point(p):
+				return true
+		return false
+	var x := int(p.x / CELL)
+	var y := int(p.y / CELL)
+	if x < 0 or y < 0 or x >= gcols or y >= grows:
+		return false
+	return grid[y * gcols + x] != 0
+
+
 func stamp(pos: Vector2, sc: Vector2, rot: float, col: Color = Color(0.5, 0.0, 0.04, 0.9)) -> void:
-	if queue.size() < 400:
+	if queue.size() < HI_MAX:
 		queue.append([pos, sc, rot, col])
 
 
-func spray(pos: Vector2, dir: Vector2, n: int, power: float) -> void:
+func stamp_lo(pos: Vector2, sc: Vector2, rot: float, col: Color = Color(0.5, 0.0, 0.04, 0.9)) -> void:
+	if queue.size() > HI_MAX - 140:
+		return
+	if queue_lo.size() < LO_MAX:
+		queue_lo.append([pos, sc, rot, col])
+
+
+func spray(pos: Vector2, dir: Vector2, n: int, power: float, col: Color = Color(0.5, 0.0, 0.04, 0.9)) -> void:
 	var lobes: Array = []
 	for i in 1 + randi() % 3:
 		lobes.append(randf_range(-0.75, 0.75))
@@ -54,7 +119,7 @@ func spray(pos: Vector2, dir: Vector2, n: int, power: float) -> void:
 		else:
 			a += float(lobes[randi() % lobes.size()]) + randf_range(-0.25, 0.25)
 		var s: float = (0.6 if back else 1.0) * power * (60.0 + pow(randf(), 2.2) * 520.0)
-		drops.append({"p": pos, "v": Vector2.from_angle(a) * s, "l": randf_range(0.25, 0.7), "a": a, "s": s})
+		drops.append({"p": pos, "v": Vector2.from_angle(a) * s, "l": randf_range(0.25, 0.7), "a": a, "s": s, "c": col})
 	if drops.size() > 300:
 		drops = drops.slice(drops.size() - 300)
 
@@ -63,33 +128,54 @@ func add_spurt(target: Node2D, off: Vector2, ang: float, dur: float) -> void:
 	spurts.append({"t": target, "o": off, "a": ang, "d": dur * 1.4, "c": 0.0})
 
 
-func _in_wall(p: Vector2) -> bool:
-	for r in wall_rects:
-		if r.has_point(p):
-			return true
-	return false
-
-
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	frame_avg = lerpf(frame_avg, delta, 0.08)
 	for s in live:
-		s.queue_free()
-	live = []
-	var n: int = mini(queue.size(), 30)
+		s.visible = false
+		spare.append(s)
+	live.clear()
+	if queue.is_empty() and queue_lo.is_empty():
+		return
+	var budget := _budget()
+	var n := 0
+	while n < budget and not queue.is_empty():
+		_draw_stamp(queue.pop_front())
+		n += 1
+	while n < budget and not queue_lo.is_empty():
+		_draw_stamp(queue_lo.pop_front())
+		n += 1
 	if n > 0:
-		for i in n:
-			var q: Array = queue.pop_front()
-			var sp := Sprite2D.new()
-			sp.texture = soft
-			sp.position = q[0]
-			sp.scale = q[1]
-			sp.rotation = q[2]
-			sp.modulate = q[3]
-			holder.add_child(sp)
-			live.append(sp)
 		vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 		if not shown:
 			shown = true
 			disp.visible = true
+
+
+func _budget() -> int:
+	if frame_avg > 0.032:
+		return 8
+	if frame_avg > 0.024:
+		return 16
+	if frame_avg > 0.019:
+		return 24
+	return 34
+
+
+func _draw_stamp(q: Array) -> void:
+	var sp: Sprite2D
+	if spare.is_empty():
+		sp = Sprite2D.new()
+		sp.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		holder.add_child(sp)
+	else:
+		sp = spare.pop_back()
+	sp.texture = soft if splats.is_empty() else splats[randi() % splats.size()]
+	sp.position = q[0]
+	sp.scale = q[1]
+	sp.rotation = q[2]
+	sp.modulate = q[3]
+	sp.visible = true
+	live.append(sp)
 
 
 func _physics_process(delta: float) -> void:
@@ -99,18 +185,23 @@ func _physics_process(delta: float) -> void:
 
 func _wall_splat(pos: Vector2, d: Dictionary) -> void:
 	var a: float = float(d["a"])
+	var col: Color = d["c"]
 	var dir: Vector2 = Vector2.from_angle(a)
 	var perp: Vector2 = Vector2(-dir.y, dir.x)
-	wall_layer.stamp(pos, Vector2(0.18 + randf() * 0.12, 0.14 + randf() * 0.10), a)
+	wall_layer.stamp(pos, Vector2(0.18 + randf() * 0.12, 0.14 + randf() * 0.10), a, col)
 	for i in 4:
 		var o: Vector2 = dir * (3.0 + float(i) * 5.0) + perp * randf_range(-4.0, 4.0)
-		wall_layer.stamp(pos + o, Vector2(0.07, 0.05), a)
+		wall_layer.stamp(pos + o, Vector2(0.07, 0.05), a, col)
 	if randf() < 0.5:
-		wall_layer.stamp(pos - dir * 6.0, Vector2(0.05, 0.05), 0.0)
+		wall_layer.stamp(pos - dir * 6.0, Vector2(0.05, 0.05), 0.0, col)
+	# escorrido: sangue desce pela parede
+	wall_layer.stamp_lo(pos + Vector2(randf_range(-3.0, 3.0), 6.0), Vector2(0.05, 0.22), 0.0, col)
+	wall_layer.stamp_lo(pos + Vector2(randf_range(-3.0, 3.0), 14.0), Vector2(0.04, 0.16), 0.0, col)
 
 
 func _update_drops(delta: float) -> void:
 	var keep: Array = []
+	var busy: bool = queue.size() > HI_MAX - 160
 	for d in drops:
 		var np: Vector2 = d["p"] + d["v"] * delta
 		if wall_layer != null and _in_wall(np) and not _in_wall(d["p"]):
@@ -124,11 +215,16 @@ func _update_drops(delta: float) -> void:
 			var target = self
 			if wall_layer != null and _in_wall(p):
 				target = wall_layer
+			var col: Color = d["c"]
 			var sx: float = 0.10 + randf() * 0.12 + float(d["s"]) * 0.0008
-			target.stamp(p, Vector2(sx, 0.08 + randf() * 0.1), float(d["a"]))
+			var sc := Vector2(sx, 0.08 + randf() * 0.1)
+			if busy:
+				target.stamp_lo(p, sc, float(d["a"]), col)
+			else:
+				target.stamp(p, sc, float(d["a"]), col)
 			if float(d["s"]) > 250.0:
 				var off: Vector2 = Vector2.from_angle(float(d["a"])) * (10.0 + randf() * 20.0)
-				target.stamp(p + off, Vector2(0.05, 0.05), 0.0)
+				target.stamp_lo(p + off, Vector2(0.05, 0.05), 0.0, col)
 		else:
 			keep.append(d)
 	drops = keep

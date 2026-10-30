@@ -15,10 +15,19 @@ func set_art(a: int) -> void:
 
 
 func _process(delta: float) -> void:
-	flash = maxf(0.0, flash - delta)
-	recoil = maxf(0.0, recoil - delta * 10.0)
-	swing = maxf(0.0, swing - delta * 5.0)
-	queue_redraw()
+	var ch := false
+	if flash > 0.0:
+		flash = maxf(0.0, flash - delta)
+		ch = true
+	if recoil > 0.0:
+		recoil = maxf(0.0, recoil - delta * 10.0)
+		ch = true
+	if swing > 0.0:
+		swing = maxf(0.0, swing - delta * 5.0)
+		ch = true
+	if ch or art == 10:
+		# art 10 (minigun) tem animação própria: precisa de redraw contínuo
+		queue_redraw()
 
 
 func _r(x: float, y: float, w: float, h: float, c: Color) -> void:
