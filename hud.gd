@@ -31,17 +31,17 @@ func _draw() -> void:
 
 func _stick(o: Vector2, p: Vector2, active: bool) -> void:
 	var a := 0.45 if active else 0.16
-	draw_arc(o, 36.0, 0.0, TAU, 20, Color(0.85, 0.8, 0.7, a), 2.0)
+	draw_arc(o, 46.0, 0.0, TAU, 24, Color(0.85, 0.8, 0.7, a), 3.0)
 	var k := Vector2.ZERO
 	if active:
-		k = (p - o).limit_length(36.0)
-	draw_circle(o + k, 14.0, Color(0.85, 0.8, 0.7, a + 0.1))
+		k = (p - o).limit_length(46.0)
+	draw_circle(o + k, 18.0, Color(0.85, 0.8, 0.7, a + 0.1))
 
 
 func _health() -> void:
 	var r: float = clampf(main.php / maxf(1.0, main.php_max), 0.0, 1.0)
 	var p := Vector2(8, 8)
-	var s := Vector2(104, 9)
+	var s := Vector2(120, 11)
 	draw_rect(Rect2(p, s), Color(0, 0, 0, 0.55), true)
 	if r > 0.0:
 		var col := Color(0.70, 0.05, 0.09)
@@ -58,8 +58,8 @@ func _ammo(vs: Vector2) -> void:
 	if main.weapons == null or main.weapons.list.is_empty():
 		return
 	var w: Dictionary = main.weapons.cur()
-	var p := Vector2(8, vs.y - 20)
-	var s := Vector2(96, 7)
+	var p := Vector2(8, vs.y - 24)
+	var s := Vector2(110, 9)
 	draw_rect(Rect2(p, s), Color(0, 0, 0, 0.55), true)
 	var frac := 1.0
 	var col := Color(0.80, 0.62, 0.18)
@@ -124,4 +124,4 @@ func _popup(vs: Vector2) -> void:
 	var al: float = clampf(main.weapon_t / 0.5, 0.0, 1.0)
 	var nm: String = str(main.weapons.cur()["nome"]).to_upper()
 	var f := ThemeDB.fallback_font
-	draw_string(f, Vector2(vs.x * 0.5 - 70.0, vs.y - 40.0), nm, HORIZONTAL_ALIGNMENT_CENTER, 140.0, 13, Color(1.0, 0.92, 0.86, al))
+	draw_string(f, Vector2(vs.x * 0.5 - 90.0, vs.y - 46.0), nm, HORIZONTAL_ALIGNMENT_CENTER, 180.0, 16, Color(1.0, 0.92, 0.86, al))

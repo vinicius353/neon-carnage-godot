@@ -112,7 +112,7 @@ func _shoot(aim: Vector2, origin: Vector2, w: Dictionary, nm: String) -> void:
 	elif nm == "Besta":
 		snd = "besta"
 	main.sfx.play(snd, randf_range(0.95, 1.05))
-	main.shoot_fx()
+	main.shoot_fx(float(w["peso"]))
 	var rng: float = minf(1100.0, float(w["velocidade"]) * float(w["alcance_frames"]))
 	var pen: int = 0
 	if nm == "Sniper":
@@ -186,7 +186,7 @@ func _melee(aim: Vector2, origin: Vector2, w: Dictionary, nm: String) -> void:
 		var dv: Vector2 = a.global_position - origin
 		if dv.length() < 56.0 and absf(angle_difference(aim.angle(), dv.angle())) < 1.0:
 			a.hit(float(w["dano"]), aim, a.to_global(Vector2(randf_range(-8, 8), randf_range(-11, 11))), cut)
-			main.shake(3.0)
+			main.shake(2.0 + float(w["peso"]) * 1.6)
 			if nm == "Motosserra":
 				main.blood.spray(a.global_position, aim, 8, 1.2)
 			if nm == "Pé de Cabra" or nm == "Martelo":
@@ -199,6 +199,7 @@ func _flame(delta: float, firing: bool, aim: Vector2, origin: Vector2, w: Dictio
 		if flame == null:
 			_make_flame()
 		flame.emitting = true
+		main.shake(0.5)
 		flame.global_position = origin
 		flame.rotation = aim.angle()
 		main.sfx.loop_on("fogo")

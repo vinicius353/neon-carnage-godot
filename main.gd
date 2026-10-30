@@ -124,7 +124,7 @@ func _build_menu() -> void:
 	map_btn = _menu_btn("MAPA", _on_map)
 	quit_btn = _menu_btn("SAIR", _on_quit)
 	hint_lbl = Label.new()
-	hint_lbl.text = "WASD MOVER   MOUSE MIRAR   Q/E ARMA   R RECARGA   F EXECUTAR   G ITEM   P PAUSA   F1 DEBUG"
+	hint_lbl.text = "NO CELULAR: TOQUE A ESQUERDA PRA ANDAR, A DIREITA PRA MIRAR   |   TECLADO: WASD MIRAR Q/E ARMA R RECARGA F EXECUTAR G ITEM P PAUSA"
 	hint_lbl.add_theme_font_size_override("font_size", 8)
 	hint_lbl.add_theme_color_override("font_color", Color(0.62, 0.58, 0.55))
 	hint_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -138,7 +138,7 @@ func _menu_btn(txt: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = txt
 	b.focus_mode = Control.FOCUS_NONE
-	b.add_theme_font_size_override("font_size", 11)
+	b.add_theme_font_size_override("font_size", 13)
 	b.pressed.connect(cb)
 	menu_root.add_child(b)
 	return b
@@ -154,17 +154,17 @@ func _layout_menu() -> void:
 	sub_lbl.position = Vector2(vs.x * 0.5 - 150.0, vs.y * 0.16 + 42.0)
 	sub_lbl.size = Vector2(300, 14)
 	sub_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var y: float = vs.y * 0.42
-	var bw := 150.0
-	var bh := 22.0
+	var y: float = vs.y * 0.34
+	var bw := 210.0
+	var bh := 32.0
 	for b in [play_btn, mode_btn, map_btn, quit_btn]:
 		if b == null:
 			continue
 		b.size = Vector2(bw, bh)
 		b.position = Vector2(vs.x * 0.5 - bw * 0.5, y)
-		y += bh + 6.0
-	hint_lbl.position = Vector2(vs.x * 0.5 - 240.0, vs.y - 18.0)
-	hint_lbl.size = Vector2(480, 12)
+		y += bh + 7.0
+	hint_lbl.position = Vector2(vs.x * 0.5 - 300.0, vs.y - 22.0)
+	hint_lbl.size = Vector2(600, 16)
 	hint_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 

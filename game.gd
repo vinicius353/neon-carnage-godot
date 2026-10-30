@@ -87,6 +87,8 @@ var msg_t := 0.0
 var kills := 0
 var ui_buttons: Array = []
 var name_label: Label
+var stat_label: Label
+var count_label: Label
 var debug_label: Label
 var pause_label: Label
 var msg_label: Label
@@ -112,7 +114,11 @@ func _ready() -> void:
 	fx = int(get_tree().root.get_meta("fx", 0)) == 1
 	mode = int(get_tree().root.get_meta("mode", 0))
 	var win: Window = get_window()
-	win.content_scale_mode = Window.CONTENT_SCALE_MODE_VIEWPORT
+	# Desenho em resolução nativa: o mundo continua em 640x360 (mesmas coordenadas,
+	# mesmo gameplay), mas texto, formas e respingos são rasterizados no tamanho real
+	# da tela em vez de serem esticados a partir de um frame 640x360.
+	win.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+	win.content_scale_stretch = Window.CONTENT_SCALE_STRETCH_INTEGER
 	win.content_scale_size = Vector2i(640, 360)
 	win.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND
 	Engine.physics_ticks_per_second = 30 if low else 60
@@ -398,6 +404,21 @@ func _free_spot() -> Vector2:
 	return Vector2(randf_range(100.0, mw - 100.0), randf_range(100.0, mh - 100.0))
 
 
+func _room_spot() -> Vector2:
+	# Spawn dentro de cômodos de verdade (em vez de ponto solto no mapa).
+	var rooms: Array = map.get("rooms", [])
+	if rooms.is_empty():
+		return _free_spot()
+	for i in 14:
+		var r: Array = rooms[randi() % rooms.size()]
+		var p := Vector2(randf_range(float(r[0]) + 28.0, float(r[0]) + float(r[2]) - 28.0), randf_range(float(r[1]) + 28.0, float(r[1]) + float(r[3]) - 28.0))
+		if nav != null:
+			p = nav.nearest_free(p)
+		if p.distance_to(player.global_position) > 320.0:
+			return p
+	return _free_spot()
+
+
 func _make_civ(pos: Vector2, sleeping: bool):
 	var a = Actor.new()
 	add_child(a)
@@ -414,10 +435,10 @@ func _make_civ(pos: Vector2, sleeping: bool):
 func _spawn_wave() -> void:
 	if mode == 3:
 		for i in 5:
-			var h = _make_civ(_free_spot(), false)
+			var h = _make_civ(_room_spot(), false)
 			h.hostage = true
 		for i in 3:
-			var ter = _make_civ(_free_spot(), false)
+			var ter = _make_civ(_room_spot(), false)
 			ter.terror = true
 			ter.hp = 60.0
 			ter.hp0 = 60.0
@@ -433,7 +454,7 @@ func _spawn_wave() -> void:
 		_make_civ(Vector2(s[0], s[1]), false)
 		n += 1
 	while n < count:
-		_make_civ(_free_spot(), false)
+		_make_civ(_room_spot(), false)
 		n += 1
 
 
@@ -507,8 +528,9 @@ func _btn(parent: Node, txt: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = txt
 	b.focus_mode = Control.FOCUS_NONE
-	b.add_theme_font_size_override("font_size", 9)
+	b.add_theme_font_size_override("font_size", 11)
 	b.pressed.connect(cb)
+	b.pressed.connect(func(): if sfx != null: sfx.play("ui", 1.1))
 	parent.add_child(b)
 	ui_buttons.append(b)
 	return b
@@ -541,8 +563,17 @@ func _make_ui() -> void:
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cl.add_child(hud)
 	name_label = Label.new()
-	name_label.add_theme_font_size_override("font_size", 9)
+	name_label.add_theme_font_size_override("font_size", 11)
+	name_label.add_theme_color_override("font_color", Color(0.96, 0.92, 0.88))
 	cl.add_child(name_label)
+	stat_label = Label.new()
+	stat_label.add_theme_font_size_override("font_size", 9)
+	stat_label.add_theme_color_override("font_color", Color(0.92, 0.60, 0.55))
+	cl.add_child(stat_label)
+	count_label = Label.new()
+	count_label.add_theme_font_size_override("font_size", 9)
+	count_label.add_theme_color_override("font_color", Color(0.80, 0.78, 0.74))
+	cl.add_child(count_label)
 	warn_label = Label.new()
 	warn_label.add_theme_font_size_override("font_size", 9)
 	cl.add_child(warn_label)
@@ -555,10 +586,10 @@ func _make_ui() -> void:
 	cl.add_child(msg_label)
 	_btn(cl, "<", func(): weapons.select(weapons.idx - 1))
 	_btn(cl, ">", func(): weapons.select(weapons.idx + 1))
-	_btn(cl, "R", func(): weapons.manual_reload())
+	_btn(cl, "REC", func(): weapons.manual_reload())
 	_btn(cl, "EXEC", _exec_btn)
 	_btn(cl, "ITEM", func(): item_i = (item_i + 1) % items.size())
-	_btn(cl, "LANCAR", throw_item)
+	_btn(cl, "USA", throw_item)
 	_btn(cl, "II", _toggle_pause)
 	pause_panel = _make_panel(cl, 200.0, 170.0)
 	var pl := Label.new()
@@ -588,17 +619,32 @@ func _make_ui() -> void:
 
 
 func _layout() -> void:
+	# Layout de celular: cada ação num bloco perto do polegar, botões grandes e
+	# agrupados (arma à esquerda embaixo, item/lançar ao lado, execução à direita).
 	var vs := get_viewport().get_visible_rect().size
-	var bw := 46.0
-	var bh := 24.0
-	var i := 0
-	for b in ui_buttons:
-		b.size = Vector2(bw, bh)
-		b.position = Vector2(vs.x - bw - 6.0, 6.0 + (bh + 4.0) * float(i))
-		i += 1
-	name_label.position = Vector2(8, 21)
-	warn_label.position = Vector2(8, 58)
-	debug_label.position = Vector2(8, 84)
+	var bh := 34.0
+	var by := vs.y - bh - 10.0
+	if ui_buttons.size() >= 7:
+		var xs := 130.0
+		for i in 3:
+			var b: Button = ui_buttons[i]
+			var bw := 46.0 if i < 2 else 54.0
+			b.size = Vector2(bw, bh)
+			b.position = Vector2(xs, by)
+			xs += bw + 6.0
+		ui_buttons[4].size = Vector2(56, bh)
+		ui_buttons[4].position = Vector2(320, by)
+		ui_buttons[5].size = Vector2(80, bh)
+		ui_buttons[5].position = Vector2(382, by)
+		ui_buttons[3].size = Vector2(76, 42)
+		ui_buttons[3].position = Vector2(vs.x - 84, vs.y * 0.38)
+		ui_buttons[6].size = Vector2(46, 30)
+		ui_buttons[6].position = Vector2(vs.x - 54, 8)
+	name_label.position = Vector2(8, 22)
+	stat_label.position = Vector2(8, 37)
+	count_label.position = Vector2(8, 51)
+	warn_label.position = Vector2(8, 68)
+	debug_label.position = Vector2(8, 92)
 	msg_label.position = Vector2(vs.x * 0.5 - 150.0, vs.y * 0.30)
 	msg_label.size = Vector2(300, 24)
 	msg_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -723,7 +769,7 @@ func _exec_btn() -> void:
 
 func _over_button(p: Vector2) -> bool:
 	for b in ui_buttons:
-		if b.get_global_rect().has_point(p):
+		if b.get_global_rect().grow(6.0).has_point(p):
 			return true
 	return false
 
@@ -754,7 +800,7 @@ func _input(e: InputEvent) -> void:
 	elif e is InputEventScreenDrag:
 		if e.index == move_t:
 			move_pos = e.position
-			move_v = ((e.position - move_o) / 36.0).limit_length(1.0)
+			move_v = ((e.position - move_o) / 46.0).limit_length(1.0)
 		elif e.index == aim_t:
 			aim_pos = e.position
 			var d: Vector2 = e.position - aim_o
@@ -815,6 +861,9 @@ func cop_shot(from: Vector2, to: Vector2) -> void:
 
 
 func on_hit() -> void:
+	# marcador de acerto com som curto, sem metralhar o áudio ao acertar vários
+	if hit_t <= 0.0 and sfx != null:
+		sfx.play("hit", randf_range(0.92, 1.12))
 	hit_t = 0.12
 
 
@@ -829,24 +878,28 @@ func hitstop(sec: float) -> void:
 
 
 func _update_label() -> void:
+	# Três linhas separadas: arma, situação do modo e contadores. Antes era tudo
+	# numa linha só de 9 px, ilegível em tela de celular.
 	var w: Dictionary = weapons.cur()
 	var am := ""
 	if w["melee"]:
-		am = "corpo a corpo"
+		am = "CORPO A CORPO"
 	else:
 		var nm: String = w["nome"]
 		am = "%d/%d" % [int(weapons.ammo[nm]), int(weapons.reserve[nm])]
 		if weapons.reload_t > 0.0:
-			am += " recarregando"
+			am = "RECARREGANDO"
+	name_label.text = "%s   %s" % [str(w["nome"]).to_upper(), am]
 	var extra := ""
 	if mode == 1:
 		extra = "ruido %d%%" % int(noise)
 	elif mode == 3:
-		extra = "refens mortos %d/2 terroristas %d" % [hostages_dead, terror_count()]
+		extra = "refens %d/2  terroristas %d" % [hostages_dead, terror_count()]
 	elif timer_t > 0.0 and not police_called:
 		extra = "tempo %d" % int(timer_t)
+	stat_label.text = "%s   %s" % [MODE_NAMES[mode], extra]
 	var it: Dictionary = items[item_i]
-	name_label.text = "HP %d/%d   %s  %s\n%s   %s   ABATES %d   CIVIS %d   %s x%d" % [int(php), int(php_max), w["nome"], am, MODE_NAMES[mode], extra, kills, civis_count(), it["n"], int(it["c"])]
+	count_label.text = "ABATES %d   CIVIS %d   %s x%d" % [kills, civis_count(), it["n"], int(it["c"])]
 
 
 func _horde_logic(delta: float) -> void:
@@ -1015,13 +1068,14 @@ func shake(v: float) -> void:
 	shake_v = maxf(shake_v, v)
 
 
-func shoot_fx() -> void:
+func shoot_fx(peso: float = 1.0) -> void:
 	if light != null:
 		light.energy = 2.6
 	art.flash = 0.06
 	art.recoil = 1.0
-	add_noise(4.0)
-	shake(1.5)
+	add_noise(3.0 + peso * 1.5)
+	# Arma pesada chacoalha mais: dá peso ao tiro sem exagerar no leve.
+	shake(0.8 + peso * 1.1)
 
 
 func on_death(a, dir: Vector2, over: float) -> void:
@@ -1039,6 +1093,8 @@ func on_death(a, dir: Vector2, over: float) -> void:
 	blood.spray(a.global_position, dir, 20, 1.25, BLOOD_ART)
 	blood.stamp(a.global_position, Vector2(1.0, 0.8), randf() * TAU, BLOOD_ART)
 	hitstop(0.05)
+	# abate violento empurra a câmera: fecha o golpe
+	shake(3.0 + minf(over * 0.12, 5.0))
 	if over > 15.0:
 		for i in int(clampf(over / 20.0, 1.0, 5.0)):
 			spawn_piece("meat", a.global_position, dir, a.skin, a.hair)
