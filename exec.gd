@@ -152,6 +152,7 @@ func _do(b: Array) -> void:
 		_end()
 		if not a.dead:
 			a.die(dir, over)
+		main.hitstop(0.07)
 
 
 func _end() -> void:

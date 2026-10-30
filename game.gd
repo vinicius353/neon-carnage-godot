@@ -3,6 +3,11 @@ extends Node2D
 
 const MAP_IDS := ["casa", "banco", "hospital", "mercado"]
 const MODE_NAMES := ["MASSACRE", "HALLOWEEN", "JUGGERNAUT", "RESGATE"]
+const CORPSE_LIFE := 45.0
+const CORPSE_MAX := 26
+const BLOOD_ART := Color(0.60, 0.02, 0.05, 0.95)
+const BLOOD_VEN := Color(0.26, 0.00, 0.02, 0.95)
+const BLOOD_DRY := Color(0.24, 0.04, 0.03, 0.92)
 const PROPCOL := {"bed": Color(0.78, 0.74, 0.68), "sofa": Color(0.40, 0.12, 0.16), "tv": Color(0.05, 0.07, 0.10), "tbl": Color(0.40, 0.28, 0.17), "chr": Color(0.48, 0.35, 0.20), "cnt": Color(0.65, 0.63, 0.58), "stv": Color(0.75, 0.75, 0.76), "fri": Color(0.85, 0.86, 0.86), "bks": Color(0.25, 0.17, 0.10), "wrd": Color(0.29, 0.20, 0.14), "dsk": Color(0.35, 0.25, 0.15), "plt": Color(0.18, 0.42, 0.20), "tub": Color(0.85, 0.90, 0.91), "toi": Color(0.93, 0.93, 0.93), "wsh": Color(0.80, 0.82, 0.83), "cab": Color(0.35, 0.23, 0.15), "fpl": Color(0.42, 0.25, 0.21), "nst": Color(0.35, 0.24, 0.15), "mac": Color(0.70, 0.75, 0.77), "prt": Color(0.35, 0.35, 0.38), "c": Color(0.42, 0.29, 0.17)}
 
 var Blood
@@ -26,6 +31,11 @@ var mw := 1600.0
 var mh := 900.0
 var nav = null
 var soft: GradientTexture2D
+var splats: Array = []
+var hit_t := 0.0
+var hitstop_until := 0
+var dmg_dir := Vector2.ZERO
+var dmg_t := 0.0
 var blood
 var wall_blood
 var sfx
@@ -63,6 +73,7 @@ var flash_a := 0.0
 var white_a := 0.0
 var last_flash := 0.0
 var hud_t := 0.0
+var smoke_t := 2.0
 var noise := 0.0
 var noise_max := 0.0
 var timer_t := 0.0
@@ -82,6 +93,12 @@ var msg_label: Label
 var warn_label: Label
 var dmg_rect: ColorRect
 var luz_btn: Button
+var weapon_t := 0.0
+var pause_panel: Control
+var end_panel: Control
+var end_title: Label
+var end_info: Label
+var end_shown := false
 var st_t := 0.0
 var st_w := -1
 var st_i := -1
@@ -91,7 +108,7 @@ func _ready() -> void:
 	randomize()
 	Engine.time_scale = 1.0
 	selftest = OS.get_cmdline_user_args().has("selftest")
-	low = int(get_tree().root.get_meta("gfx", 0)) == 0
+	low = true
 	fx = int(get_tree().root.get_meta("fx", 0)) == 1
 	mode = int(get_tree().root.get_meta("mode", 0))
 	var win: Window = get_window()
@@ -129,6 +146,7 @@ func _ready() -> void:
 	add_child(weapons)
 	weapons.load_list()
 	weapons.select(0)
+	weapon_t = 0.0
 	exec = Exec.new()
 	exec.main = self
 	add_child(exec)
@@ -175,6 +193,55 @@ func _make_soft() -> void:
 	soft.fill_to = Vector2(0.5, 0.0)
 	soft.width = 64
 	soft.height = 64
+	splats = _make_splats()
+
+
+func _make_splats() -> Array:
+	# Respingos irregulares gerados na hora: mancha com borda rasgada + gotas soltas.
+	var out: Array = []
+	for v in 6:
+		var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+		img.fill(Color(1, 1, 1, 0))
+		var p0 := randf() * TAU
+		var p1 := randf() * TAU
+		var p2 := randf() * TAU
+		var w0 := 1.0 + randf() * 2.0
+		var w1 := 2.0 + randf() * 3.0
+		var w2 := 4.0 + randf() * 4.0
+		for y in 64:
+			for x in 64:
+				var dx := (float(x) - 31.5) / 32.0
+				var dy := (float(y) - 31.5) / 32.0
+				var d := sqrt(dx * dx + dy * dy)
+				var ang := atan2(dy, dx)
+				var wob := sin(ang * w0 + p0) * 0.11 + sin(ang * w1 + p1) * 0.06 + sin(ang * w2 + p2) * 0.035
+				var lim := 0.70 + wob
+				var a := clampf(1.0 - d / maxf(0.06, lim), 0.0, 1.0)
+				a = pow(a, 0.8)
+				if a > 0.01:
+					img.set_pixel(x, y, Color(1, 1, 1, a))
+		for i in 8:
+			var sa := randf() * TAU
+			var sr := 0.80 + randf() * 0.45
+			var cx := 31.5 + cos(sa) * sr * 27.0
+			var cy := 31.5 + sin(sa) * sr * 27.0
+			var rr := 0.7 + randf() * 2.2
+			var al := randf_range(0.45, 0.95)
+			var x0 := maxi(0, int(cx - rr - 1.0))
+			var x1 := mini(63, int(cx + rr + 1.0))
+			var y0 := maxi(0, int(cy - rr - 1.0))
+			var y1 := mini(63, int(cy + rr + 1.0))
+			for y in range(y0, y1 + 1):
+				for x in range(x0, x1 + 1):
+					var ddx := float(x) - cx
+					var ddy := float(y) - cy
+					var dd := sqrt(ddx * ddx + ddy * ddy)
+					if dd <= rr:
+						var aa := (1.0 - dd / maxf(0.4, rr)) * al
+						if img.get_pixel(x, y).a < aa:
+							img.set_pixel(x, y, Color(1, 1, 1, aa))
+		out.append(ImageTexture.create_from_image(img))
+	return out
 
 
 func _block(r: Rect2, col: Color, solid: bool, kind: String) -> void:
@@ -246,10 +313,10 @@ func _build_world() -> void:
 	add_child(sfx)
 	blood = Blood.new()
 	add_child(blood)
-	blood.setup(Vector2i(int(mw), int(mh)), -10, soft)
+	blood.setup(Vector2i(int(mw), int(mh)), -10, soft, splats)
 	wall_blood = Blood.new()
 	add_child(wall_blood)
-	wall_blood.setup(Vector2i(int(mw), int(mh)), 1, soft)
+	wall_blood.setup(Vector2i(int(mw), int(mh)), 1, soft, splats)
 	blood.disp.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	wall_blood.disp.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	blood.wall_layer = wall_blood
@@ -265,8 +332,8 @@ func _build_world() -> void:
 		_block(r2, PROPCOL.get(kind, Color(0.4, 0.3, 0.2)), solid, kind)
 		if solid:
 			solids.append(r2)
-	blood.wall_rects = solids
-	wall_blood.wall_rects = solids
+	blood.set_walls(solids)
+	wall_blood.set_walls(solids)
 	if Nav != null:
 		nav = Nav.new()
 		nav.build(Vector2(mw, mh), solids)
@@ -410,6 +477,16 @@ func terror_count() -> int:
 	return n
 
 
+func _prune_smokes() -> void:
+	if smokes.is_empty():
+		return
+	var keep: Array = []
+	for s in smokes:
+		if is_instance_valid(s):
+			keep.append(s)
+	smokes = keep
+
+
 func in_smoke(p: Vector2) -> bool:
 	for s in smokes:
 		if is_instance_valid(s) and s.state == "smoke" and s.position.distance_to(p) < 62.0:
@@ -464,22 +541,15 @@ func _make_ui() -> void:
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cl.add_child(hud)
 	name_label = Label.new()
-	name_label.add_theme_font_size_override("font_size", 10)
+	name_label.add_theme_font_size_override("font_size", 9)
 	cl.add_child(name_label)
 	warn_label = Label.new()
 	warn_label.add_theme_font_size_override("font_size", 9)
-	warn_label.position = Vector2(6, 64)
 	cl.add_child(warn_label)
 	debug_label = Label.new()
 	debug_label.add_theme_font_size_override("font_size", 9)
 	debug_label.visible = false
-	debug_label.position = Vector2(6, 80)
 	cl.add_child(debug_label)
-	pause_label = Label.new()
-	pause_label.text = "PAUSADO"
-	pause_label.visible = false
-	pause_label.add_theme_font_size_override("font_size", 24)
-	cl.add_child(pause_label)
 	msg_label = Label.new()
 	msg_label.add_theme_font_size_override("font_size", 18)
 	cl.add_child(msg_label)
@@ -489,32 +559,96 @@ func _make_ui() -> void:
 	_btn(cl, "EXEC", _exec_btn)
 	_btn(cl, "ITEM", func(): item_i = (item_i + 1) % items.size())
 	_btn(cl, "LANCAR", throw_item)
-	_btn(cl, "MODO", _next_mode)
-	_btn(cl, "MAPA", _next_map)
-	luz_btn = _btn(cl, "LUZ", _toggle_gfx)
-	luz_btn.text = "LUZ:N" if low else "LUZ:S"
-	var fxb := _btn(cl, "FX", _toggle_fx)
-	fxb.text = "FX:S" if fx else "FX:N"
-	_btn(cl, "DBG", func(): debug_label.visible = not debug_label.visible)
 	_btn(cl, "II", _toggle_pause)
-	_btn(cl, "NOVO", _restart)
+	pause_panel = _make_panel(cl, 200.0, 170.0)
+	var pl := Label.new()
+	pl.text = "PAUSADO"
+	pl.add_theme_font_size_override("font_size", 16)
+	pl.position = Vector2(15, 8)
+	pl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pause_panel.add_child(pl)
+	_panel_btn(pause_panel, "CONTINUAR", _toggle_pause, 38.0)
+	_panel_btn(pause_panel, "NOVO", _restart, 64.0)
+	_panel_btn(pause_panel, "TROCAR MAPA", _next_map, 90.0)
+	_panel_btn(pause_panel, "TROCAR MODO", _next_mode, 116.0)
+	_panel_btn(pause_panel, "MENU", _to_menu, 142.0)
+	end_panel = _make_panel(cl, 260.0, 140.0)
+	end_title = Label.new()
+	end_title.add_theme_font_size_override("font_size", 16)
+	end_title.position = Vector2(15, 8)
+	end_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	end_panel.add_child(end_title)
+	end_info = Label.new()
+	end_info.add_theme_font_size_override("font_size", 9)
+	end_info.position = Vector2(15, 32)
+	end_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	end_panel.add_child(end_info)
+	_panel_btn(end_panel, "NOVO", _restart, 62.0)
+	_panel_btn(end_panel, "MENU", _to_menu, 88.0)
 
 
 func _layout() -> void:
 	var vs := get_viewport().get_visible_rect().size
 	var bw := 46.0
 	var bh := 24.0
-	var cols := 6
 	var i := 0
 	for b in ui_buttons:
-		var col: int = i % cols
-		var row: int = int(i / cols)
 		b.size = Vector2(bw, bh)
-		b.position = Vector2(vs.x - 6.0 - (bw + 4.0) * float(col + 1) + 4.0, 6.0 + (bh + 4.0) * float(row))
+		b.position = Vector2(vs.x - bw - 6.0, 6.0 + (bh + 4.0) * float(i))
 		i += 1
-	name_label.position = Vector2(6, 4)
-	pause_label.position = Vector2(vs.x * 0.5 - 60.0, vs.y * 0.5 - 20.0)
-	msg_label.position = Vector2(vs.x * 0.5 - 130.0, vs.y * 0.3)
+	name_label.position = Vector2(8, 21)
+	warn_label.position = Vector2(8, 58)
+	debug_label.position = Vector2(8, 84)
+	msg_label.position = Vector2(vs.x * 0.5 - 150.0, vs.y * 0.30)
+	msg_label.size = Vector2(300, 24)
+	msg_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	if pause_panel != null:
+		pause_panel.position = Vector2(vs.x * 0.5 - pause_panel.size.x * 0.5, vs.y * 0.5 - pause_panel.size.y * 0.5)
+	if end_panel != null:
+		end_panel.position = Vector2(vs.x * 0.5 - end_panel.size.x * 0.5, vs.y * 0.5 - end_panel.size.y * 0.5)
+
+
+func _make_panel(parent: Node, w: float, h: float) -> Control:
+	var p := Control.new()
+	p.size = Vector2(w, h)
+	p.visible = false
+	p.mouse_filter = Control.MOUSE_FILTER_STOP
+	parent.add_child(p)
+	var bg := ColorRect.new()
+	bg.color = Color(0.04, 0.02, 0.03, 0.94)
+	bg.size = Vector2(w, h)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(bg)
+	var line := ColorRect.new()
+	line.color = Color(0.55, 0.05, 0.08, 0.9)
+	line.size = Vector2(w, 2)
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(line)
+	return p
+
+
+func _panel_btn(p: Control, txt: String, cb: Callable, y: float) -> Button:
+	var b := Button.new()
+	b.text = txt
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", 10)
+	b.size = Vector2(170, 22)
+	b.position = Vector2(15, y)
+	b.pressed.connect(cb)
+	p.add_child(b)
+	return b
+
+
+func _show_end(t: String, info: String) -> void:
+	if end_shown:
+		return
+	end_shown = true
+	ended = true
+	end_title.text = t
+	end_info.text = info
+	pause_panel.visible = false
+	end_panel.visible = true
+	get_tree().paused = true
 
 
 func _next_map() -> void:
@@ -527,19 +661,22 @@ func _next_mode() -> void:
 	_restart()
 
 
-func _toggle_gfx() -> void:
-	get_tree().root.set_meta("gfx", 1 if low else 0)
-	_restart()
-
-
-func _toggle_fx() -> void:
-	get_tree().root.set_meta("fx", 0 if fx else 1)
-	_restart()
-
-
 func _toggle_pause() -> void:
-	get_tree().paused = not get_tree().paused
-	pause_label.visible = get_tree().paused
+	if end_shown:
+		return
+	var p: bool = not get_tree().paused
+	get_tree().paused = p
+	pause_panel.visible = p
+
+
+func _to_menu() -> void:
+	Engine.time_scale = 1.0
+	get_tree().paused = false
+	var p = get_parent()
+	if p != null and p.has_method("back_to_menu"):
+		p.back_to_menu()
+	else:
+		_restart()
 
 
 func _restart() -> void:
@@ -636,22 +773,27 @@ func _input(e: InputEvent) -> void:
 			throw_item()
 		elif e.keycode == KEY_P:
 			_toggle_pause()
+		elif e.keycode == KEY_F1:
+			debug_label.visible = not debug_label.visible
 
 
-func hurt_player(d: float) -> void:
+func hurt_player(d: float, from: Vector2 = Vector2.ZERO) -> void:
 	if pdead:
 		return
+	if from != Vector2.ZERO:
+		dmg_dir = (player.global_position - from).normalized()
 	php -= d
 	flash_a = 0.45
 	shake(4.0)
 	fig.kick = Vector2.from_angle(randf() * TAU) * 3.0
-	blood.stamp(player.global_position, Vector2(0.3, 0.3), randf() * TAU)
-	blood.spray(player.global_position, Vector2.from_angle(randf() * TAU), 5, 0.8)
+	blood.stamp(player.global_position, Vector2(0.3, 0.3), randf() * TAU, BLOOD_ART)
+	blood.spray(player.global_position, Vector2.from_angle(randf() * TAU), 7, 0.9, BLOOD_ART)
 	if php <= 0.0:
 		pdead = true
 		death_t = 2.5
 		fig.dead = true
 		fig.fall_t = 0.25
+		fig.fall_rot = randf_range(1.8, 3.0) * (1.0 if randf() < 0.5 else -1.0)
 		msg("FIM.")
 
 
@@ -669,7 +811,21 @@ func cop_shot(from: Vector2, to: Vector2) -> void:
 	tracer(from, to)
 	sfx.play("pistola", 1.2)
 	if randf() < 0.65:
-		hurt_player(8.0)
+		hurt_player(8.0, from)
+
+
+func on_hit() -> void:
+	hit_t = 0.12
+
+
+func hitstop(sec: float) -> void:
+	# Congela por alguns milissegundos no impacto: dá peso ao golpe.
+	if exec != null and exec.busy:
+		return
+	if hitstop_until > Time.get_ticks_msec():
+		return
+	hitstop_until = Time.get_ticks_msec() + int(sec * 1000.0)
+	Engine.time_scale = 0.05
 
 
 func _update_label() -> void:
@@ -690,7 +846,7 @@ func _update_label() -> void:
 	elif timer_t > 0.0 and not police_called:
 		extra = "tempo %d" % int(timer_t)
 	var it: Dictionary = items[item_i]
-	name_label.text = "HP %d  %s  %s\n%s  %s  civis %d  item %s x%d" % [int(php), w["nome"], am, MODE_NAMES[mode], extra, civis_count(), it["n"], int(it["c"])]
+	name_label.text = "HP %d/%d   %s  %s\n%s   %s   ABATES %d   CIVIS %d   %s x%d" % [int(php), int(php_max), w["nome"], am, MODE_NAMES[mode], extra, kills, civis_count(), it["n"], int(it["c"])]
 
 
 func _horde_logic(delta: float) -> void:
@@ -709,18 +865,11 @@ func _horde_logic(delta: float) -> void:
 			if clear_t > 2.0:
 				call_police()
 	if police_called and actors.is_empty() and not ended:
-		ended = true
-		end_t = 4.0
 		msg("NAO SOBROU NINGUEM")
-	if ended:
-		end_t -= delta
-		if end_t <= 0.0:
-			_restart()
+		_show_end("NAO SOBROU NINGUEM", "abates %d   tempo %ds" % [kills, int(elapsed)])
 
 
 func _finish_halloween() -> void:
-	ended = true
-	end_t = 5.0
 	var sil: int = 100 - int(noise_max)
 	var pts: int = sil * 5 + maxi(0, 300 - int(elapsed))
 	var g := "C"
@@ -731,22 +880,18 @@ func _finish_halloween() -> void:
 	elif pts >= 450:
 		g = "B"
 	msg("NOTA %s  silencio %d%%" % [g, sil])
+	_show_end("NOTA " + g, "silencio %d%%   pontos %d   tempo %ds" % [sil, pts, int(elapsed)])
 
 
 func _resgate_logic(delta: float) -> void:
-	if not ended:
-		if terror_count() == 0:
-			ended = true
-			end_t = 4.0
-			msg("RESGATE CONCLUIDO")
-		elif hostages_dead >= 2:
-			ended = true
-			end_t = 4.0
-			msg("REFENS MORTOS")
-	else:
-		end_t -= delta
-		if end_t <= 0.0:
-			_restart()
+	if ended:
+		return
+	if terror_count() == 0:
+		msg("RESGATE CONCLUIDO")
+		_show_end("RESGATE CONCLUIDO", "abates %d   refens mortos %d" % [kills, hostages_dead])
+	elif hostages_dead >= 2:
+		msg("REFENS MORTOS")
+		_show_end("REFENS MORTOS", "abates %d" % kills)
 
 
 func _selftest(delta: float) -> void:
@@ -784,6 +929,12 @@ func _selftest(delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	flash_a = maxf(0.0, flash_a - delta * 1.5)
 	white_a = maxf(0.0, white_a - delta * 1.2)
+	hit_t = maxf(0.0, hit_t - delta)
+	dmg_t = maxf(0.0, dmg_t - delta)
+	if hitstop_until > 0 and Time.get_ticks_msec() >= hitstop_until:
+		hitstop_until = 0
+		if exec == null or not exec.busy:
+			Engine.time_scale = 1.0
 	if flash_a > 0.0 or white_a > 0.0 or last_flash > 0.0:
 		if white_a > 0.0:
 			dmg_rect.color = Color(1, 1, 1, white_a)
@@ -791,12 +942,16 @@ func _physics_process(delta: float) -> void:
 			dmg_rect.color = Color(0.7, 0.0, 0.0, flash_a)
 	last_flash = maxf(flash_a, white_a)
 	decoy_t = maxf(0.0, decoy_t - delta)
+	smoke_t -= delta
+	if smoke_t <= 0.0:
+		smoke_t = 2.0
+		_prune_smokes()
 	noise = maxf(0.0, noise - delta * 1.5)
 	noise_max = maxf(noise_max, noise)
 	if pdead:
 		death_t -= delta
 		if death_t <= 0.0:
-			_restart()
+			_show_end("VOCE MORREU", "abates %d   tempo %ds" % [kills, int(elapsed)])
 		return
 	if exec.busy:
 		exec.update(delta)
@@ -830,6 +985,7 @@ func _physics_process(delta: float) -> void:
 		_resgate_logic(delta)
 	else:
 		_horde_logic(delta)
+	weapon_t = maxf(0.0, weapon_t - delta)
 	hud_t -= delta
 	if hud_t <= 0.0:
 		hud_t = 0.2
@@ -875,9 +1031,14 @@ func on_death(a, dir: Vector2, over: float) -> void:
 	if a.hostage:
 		hostages_dead += 1
 		msg("REFEM MORTO")
-	corpses.append({"n": a, "t": 12.0})
-	blood.spray(a.global_position, dir, 14, 1.0)
-	blood.stamp(a.global_position, Vector2(0.9, 0.7), randf() * TAU)
+	corpses.append({"n": a, "t": CORPSE_LIFE, "pool": 0.0})
+	if corpses.size() > CORPSE_MAX:
+		var old = corpses.pop_front()
+		if is_instance_valid(old["n"]):
+			old["n"].queue_free()
+	blood.spray(a.global_position, dir, 20, 1.25, BLOOD_ART)
+	blood.stamp(a.global_position, Vector2(1.0, 0.8), randf() * TAU, BLOOD_ART)
+	hitstop(0.05)
 	if over > 15.0:
 		for i in int(clampf(over / 20.0, 1.0, 5.0)):
 			spawn_piece("meat", a.global_position, dir, a.skin, a.hair)
@@ -902,18 +1063,29 @@ func spawn_piece(kind: String, pos: Vector2, dir: Vector2, skin: Color, hair: Co
 func _update_pieces() -> void:
 	for p in pieces:
 		if is_instance_valid(p) and p.linear_velocity.length() > 25.0 and randf() < 0.4:
-			blood.stamp(p.global_position + Vector2(randf_range(-4, 4), randf_range(-4, 4)), Vector2(0.14, 0.14), randf() * TAU)
+			blood.stamp(p.global_position + Vector2(randf_range(-4, 4), randf_range(-4, 4)), Vector2(0.14, 0.14), randf() * TAU, BLOOD_VEN)
 
 
 func _update_corpses(delta: float) -> void:
 	var keep: Array = []
 	for c in corpses:
 		c["t"] -= delta
-		if c["t"] > 0.0 and is_instance_valid(c["n"]):
-			if randf() < 0.2:
-				var age: float = 1.0 - float(c["t"]) / 12.0
-				var col := Color(0.5 - 0.18 * age, 0.0, 0.04, 0.9)
-				var p: Vector2 = c["n"].global_position + Vector2(randf_range(-12, 12), randf_range(-12, 12))
-				blood.stamp(p, Vector2(0.35 + randf() * 0.45, 0.35 + randf() * 0.45), randf() * TAU, col)
-			keep.append(c)
+		var a = c["n"]
+		if not is_instance_valid(a):
+			continue
+		if float(c["t"]) <= 0.0:
+			a.queue_free()
+			continue
+		# poça embaixo do corpo cresce com o tempo (prioridade baixa)
+		c["pool"] += delta
+		if float(c["pool"]) >= 0.55:
+			c["pool"] = 0.0
+			var age: float = clampf(1.0 - float(c["t"]) / CORPSE_LIFE, 0.0, 1.0)
+			var r: float = 0.45 + age * 1.15
+			var col := Color(0.46 - 0.16 * age, 0.0, 0.03, 0.9)
+			var p: Vector2 = a.global_position + Vector2(randf_range(-16, 16), randf_range(-16, 16))
+			blood.stamp_lo(p, Vector2(r, r * randf_range(0.7, 1.0)), randf() * TAU, col)
+		if float(c["t"]) < 3.0:
+			a.modulate.a = clampf(float(c["t"]) / 3.0, 0.0, 1.0)
+		keep.append(c)
 	corpses = keep

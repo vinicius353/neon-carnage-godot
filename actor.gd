@@ -9,6 +9,8 @@ var hp0 := 40.0
 var has_head := true
 var arm_l := true
 var arm_r := true
+var leg_l := true
+var leg_r := true
 var arm_dmg := [0.0, 0.0]
 var legs_dmg := 0.0
 var dead := false
@@ -58,6 +60,8 @@ func refresh() -> void:
 	fig.has_head = has_head
 	fig.arm_l = arm_l
 	fig.arm_r = arm_r
+	fig.leg_l = leg_l
+	fig.leg_r = leg_r
 	fig.dead = dead
 	fig.sleeping = sleeping
 	fig.is_cop = cop
@@ -90,13 +94,17 @@ func hit(dmg: float, dir: Vector2, gpos: Vector2, cut: float) -> void:
 		legs_dmg += dmg
 	hp -= d
 	fig.kick = dir * 3.0
-	main.blood.spray(gpos, dir, 6 if hp > 0.0 else 16, 1.0)
-	main.blood.stamp(gpos, Vector2(0.3, 0.3), randf() * TAU)
-	main.blood.stamp(global_position + dir * 9.0, Vector2(0.4, 0.3), dir.angle())
+	var bcol: Color = main.BLOOD_ART if zone == "head" else main.BLOOD_VEN
+	main.blood.spray(gpos, dir, 6 if hp > 0.0 else 18, 1.0, bcol)
+	main.blood.stamp(gpos, Vector2(0.3, 0.3), randf() * TAU, bcol)
+	main.blood.stamp(global_position + dir * 9.0, Vector2(0.4, 0.3), dir.angle(), bcol)
+	main.on_hit()
 	if zone == "arm" and cut > 0.0 and randf() < cut + float(arm_dmg[si]) / 100.0:
 		sever("arm_l" if si == 0 else "arm_r", dir)
 	elif zone == "head" and cut >= 0.5 and randf() < cut:
 		sever("head", dir)
+	elif zone == "legs" and cut > 0.0 and randf() < cut * 0.55:
+		sever("leg_l" if randf() < 0.5 else "leg_r", dir)
 	elif cut >= 0.4 and randf() < cut * 0.3:
 		sever("arm_l" if randf() < 0.5 else "arm_r", dir)
 	refresh()
@@ -117,6 +125,20 @@ func sever(part: String, dir: Vector2) -> void:
 			return
 		arm_r = false
 		off = Vector2(0, 9)
+	elif part == "leg_l":
+		if not leg_l:
+			return
+		leg_l = false
+		legs_dmg = 100.0
+		off = Vector2(-6.0, -6.0)
+		kind = "leg"
+	elif part == "leg_r":
+		if not leg_r:
+			return
+		leg_r = false
+		legs_dmg = 100.0
+		off = Vector2(-6.0, 6.0)
+		kind = "leg"
 	else:
 		if not has_head:
 			return
@@ -136,8 +158,10 @@ func die(dir: Vector2, over: float) -> void:
 	dead = true
 	collision_layer = 0
 	z_index = 0
+	set_physics_process(false)
 	refresh()
 	fig.fall_t = 0.25
+	fig.fall_rot = randf_range(1.8, 3.0) * (1.0 if randf() < 0.5 else -1.0)
 	fig.moving = false
 	main.on_death(self, dir, over)
 

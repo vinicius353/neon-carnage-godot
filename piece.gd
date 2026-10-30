@@ -30,6 +30,11 @@ func _draw() -> void:
 			draw_rect(Rect2(-9, -2.5, 16, 5), skin)
 			draw_circle(Vector2(8, 0), 3.0, Color(0.75, 0.05, 0.08))
 			draw_circle(Vector2(8, 0), 1.4, Color(0.9, 0.88, 0.8))
+		"leg":
+			draw_rect(Rect2(-3.0, -9.0, 6.0, 18.0), skin)
+			draw_rect(Rect2(-3.0, 4.0, 6.0, 5.0), Color(0.07, 0.07, 0.09))
+			draw_circle(Vector2(0, -9.0), 2.6, Color(0.6, 0.03, 0.06))
+			draw_circle(Vector2(0, -9.0), 1.2, Color(0.9, 0.88, 0.8))
 		"head":
 			draw_circle(Vector2.ZERO, 6.0, skin)
 			draw_circle(Vector2(-2, 0), 5.2, hair)
@@ -47,6 +52,11 @@ func _draw() -> void:
 		"gut":
 			for i in 6:
 				draw_circle(Vector2(-10 + i * 4, sin(i * 1.3) * 2.5), 2.6, Color(0.72, 0.42, 0.45))
+		"rib":
+			for i in 3:
+				draw_line(Vector2(-6.0, -3.0 + i * 3.0), Vector2(6.0, -2.0 + i * 3.0), Color(0.88, 0.86, 0.78), 1.4)
+			draw_line(Vector2(-5.0, -3.0), Vector2(-5.0, 7.0), Color(0.8, 0.78, 0.70), 1.2)
+			draw_circle(Vector2(2, 6), 2.0, Color(0.55, 0.05, 0.08))
 		"meat":
 			draw_circle(Vector2.ZERO, 3.2, Color(0.5, 0.05, 0.07))
 			draw_circle(Vector2(2, 1), 2.1, Color(0.62, 0.1, 0.12))

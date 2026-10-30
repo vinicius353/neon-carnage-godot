@@ -11,6 +11,9 @@ var is_cop := false
 var has_head := true
 var arm_l := true
 var arm_r := true
+var leg_l := true
+var leg_r := true
+var fall_rot := 2.5
 var dead := false
 var sleeping := false
 var moving := false
@@ -31,9 +34,21 @@ func _process(delta: float) -> void:
 	kick = kick.move_toward(Vector2.ZERO, delta * 30.0)
 	if fall_t > 0.0:
 		fall_t = maxf(0.0, fall_t - delta)
+		if fall_t == 0.0 and dead:
+			# cadáver já caiu: não há mais nada para animar
+			set_process(false)
+			return
 	redraw_t -= delta
-	if moving or swing > 0.0 or recoil > 0.0 or fall_t > 0.0 or kick != Vector2.ZERO or redraw_t <= 0.0:
+	if redraw_t > 0.0:
+		return
+	var anim: bool = moving or swing > 0.0 or recoil > 0.0 or fall_t > 0.0 or kick != Vector2.ZERO
+	if anim:
+		# personagem em ação: anima a 14 fps (suficiente para o pixel)
 		redraw_t = 0.07
+		queue_redraw()
+	elif not dead:
+		# parado e vivo: só a respiração, a 4 fps
+		redraw_t = 0.25
 		queue_redraw()
 
 
@@ -44,6 +59,11 @@ func _dk(c: Color, k: float) -> Color:
 func _leg(p: Vector2, c: Color) -> void:
 	draw_rect(Rect2(p.x - 4.0, p.y - 2.8, 6.0, 5.6), c)
 	draw_rect(Rect2(p.x + 2.0, p.y - 2.8, 4.0, 5.6), Color(0.07, 0.07, 0.09))
+
+
+func _leg_stump(p: Vector2) -> void:
+	draw_circle(p, 3.0, Color(0.55, 0.03, 0.06))
+	draw_circle(p, 1.4, Color(0.9, 0.88, 0.8))
 
 
 func _blood_spots() -> void:
@@ -125,7 +145,7 @@ func _draw() -> void:
 	elif sleeping:
 		k = 0.8
 	var fk: float = 1.0 - fall_t * 1.2
-	var base_rot: float = fall_t * 2.5
+	var base_rot: float = fall_t * fall_rot
 	var sc: Vector2 = Vector2(fk, fk)
 	var step: float = 0.0
 	if moving and not dead and not sleeping:
@@ -138,8 +158,14 @@ func _draw() -> void:
 		twist = (swing - 0.3) * 0.25
 	draw_set_transform(kick, base_rot, sc)
 	if not dead:
-		_leg(Vector2(step * 5.0, -4.5), _dk(pants, k))
-		_leg(Vector2(-step * 5.0, 4.5), _dk(pants, k))
+		if leg_l:
+			_leg(Vector2(step * 5.0, -4.5), _dk(pants, k))
+		else:
+			_leg_stump(Vector2(-2.0, -4.5))
+		if leg_r:
+			_leg(Vector2(-step * 5.0, 4.5), _dk(pants, k))
+		else:
+			_leg_stump(Vector2(-2.0, 4.5))
 	draw_set_transform(kick, base_rot + twist, Vector2(fk * 0.78, fk * 1.25 * breathe))
 	draw_circle(Vector2.ZERO, 9.0, _dk(shirt, k))
 	draw_arc(Vector2.ZERO, 9.0, 0.0, TAU, 20, Color(0, 0, 0, 0.5), 1.2)

@@ -41,6 +41,7 @@ func select(i: int) -> void:
 	main.sfx.loop_off("serra")
 	_flame_off()
 	main.art.set_art(int(list[idx]["arte"]))
+	main.weapon_t = 1.5
 
 
 func manual_reload() -> void:
@@ -141,6 +142,7 @@ func _ray(origin: Vector2, dir: Vector2, rng: float, dmg: float, pen: int, cut: 
 			if close_only and origin.distance_to(pos) > 130.0:
 				c = 0.0
 			col.hit(d, dir, pos, c)
+			main.on_hit()
 			excl.append(col.get_rid())
 			d *= 0.6
 			from = pos + dir * 2.0

@@ -18,6 +18,8 @@ void fragment() {
 	float massa = smoothstep(limiar, limiar + 0.1, a);
 	vec3 n = normalize(vec3(-(ax1 - ax2) * 6.0, -(ay1 - ay2) * 6.0, 1.0));
 	float brilho = pow(max(dot(n, normalize(vec3(-0.4, -0.5, 0.8))), 0.0), 24.0);
-	vec3 cor = mix(vec3(0.38, 0.01, 0.03), vec3(0.62, 0.03, 0.05), smoothstep(limiar, 0.9, a));
-	COLOR = vec4(cor + vec3(brilho) * 0.5, massa * 0.95);
+	float dens = smoothstep(limiar, 0.88, a);
+	vec3 cor = mix(vec3(0.22, 0.0, 0.015), vec3(0.62, 0.035, 0.05), dens);
+	cor *= 0.72 + 0.4 * dens;
+	COLOR = vec4(cor + vec3(brilho) * 0.45, massa * 0.95);
 }
