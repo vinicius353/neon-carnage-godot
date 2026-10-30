@@ -96,7 +96,7 @@ func hit(dmg: float, dir: Vector2, gpos: Vector2, cut: float) -> void:
 	fig.kick = dir * 3.0
 	var bcol: Color = main.BLOOD_ART if zone == "head" else main.BLOOD_VEN
 	# impacto completo: poça + estrias no sentido do golpe + névoa de gotas
-	main.blood.splash(gpos, dir, 1.15 if hp <= 0.0 else 0.9, bcol)
+	main.blood.splash(gpos, dir, 1.4 if hp <= 0.0 else 1.0, bcol)
 	main.on_hit()
 	if zone == "arm" and cut > 0.0 and randf() < cut + float(arm_dmg[si]) / 100.0:
 		sever("arm_l" if si == 0 else "arm_r", dir)
@@ -160,7 +160,9 @@ func die(dir: Vector2, over: float) -> void:
 	set_physics_process(false)
 	refresh()
 	fig.fall_t = 0.25
-	fig.fall_rot = randf_range(1.8, 3.0) * (1.0 if randf() < 0.5 else -1.0)
+	# lado da queda: o corpo deita para um lado e fica lá (não roda como pião)
+	fig.lie_sign = 1.0 if randf() < 0.5 else -1.0
+	fig.fall_rot = 2.5 * fig.lie_sign
 	fig.moving = false
 	main.on_death(self, dir, over)
 

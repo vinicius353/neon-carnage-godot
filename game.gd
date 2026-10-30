@@ -3,12 +3,13 @@ extends Node2D
 
 const MAP_IDS := ["casa", "banco", "hospital", "mercado"]
 const MODE_NAMES := ["MASSACRE", "HALLOWEEN", "JUGGERNAUT", "RESGATE"]
-const CORPSE_LIFE := 45.0
-const CORPSE_MAX := 26
+const CORPSE_MAX := 80
 const BLOOD_ART := Color(0.60, 0.02, 0.05, 0.95)
 const BLOOD_VEN := Color(0.26, 0.00, 0.02, 0.95)
 const BLOOD_DRY := Color(0.24, 0.04, 0.03, 0.92)
-const PROPCOL := {"bed": Color(0.78, 0.74, 0.68), "sofa": Color(0.40, 0.12, 0.16), "tv": Color(0.05, 0.07, 0.10), "tbl": Color(0.40, 0.28, 0.17), "chr": Color(0.48, 0.35, 0.20), "cnt": Color(0.65, 0.63, 0.58), "stv": Color(0.75, 0.75, 0.76), "fri": Color(0.85, 0.86, 0.86), "bks": Color(0.25, 0.17, 0.10), "wrd": Color(0.29, 0.20, 0.14), "dsk": Color(0.35, 0.25, 0.15), "plt": Color(0.18, 0.42, 0.20), "tub": Color(0.85, 0.90, 0.91), "toi": Color(0.93, 0.93, 0.93), "wsh": Color(0.80, 0.82, 0.83), "cab": Color(0.35, 0.23, 0.15), "fpl": Color(0.42, 0.25, 0.21), "nst": Color(0.35, 0.24, 0.15), "mac": Color(0.70, 0.75, 0.77), "prt": Color(0.35, 0.35, 0.38), "c": Color(0.42, 0.29, 0.17)}
+const PROPCOL := {"bed": Color(0.78, 0.74, 0.68), "sofa": Color(0.40, 0.12, 0.16), "tv": Color(0.05, 0.07, 0.10), "tbl": Color(0.40, 0.28, 0.17), "chr": Color(0.48, 0.35, 0.20), "cnt": Color(0.65, 0.63, 0.58), "stv": Color(0.75, 0.75, 0.76), "fri": Color(0.85, 0.86, 0.86), "bks": Color(0.25, 0.17, 0.10), "wrd": Color(0.29, 0.20, 0.14), "dsk": Color(0.35, 0.25, 0.15), "plt": Color(0.18, 0.42, 0.20), "tub": Color(0.85, 0.90, 0.91), "toi": Color(0.93, 0.93, 0.93), "wsh": Color(0.80, 0.82, 0.83), "cab": Color(0.35, 0.23, 0.15), "fpl": Color(0.42, 0.25, 0.21), "nst": Color(0.35, 0.24, 0.15), "mac": Color(0.70, 0.75, 0.77), "prt": Color(0.35, 0.35, 0.38), "c": Color(0.42, 0.29, 0.17),
+	"rug": Color(0.28, 0.13, 0.15), "crt": Color(0.56, 0.43, 0.27), "chr2": Color(0.42, 0.30, 0.18), "gur": Color(0.72, 0.74, 0.76),
+	"iv": Color(0.80, 0.82, 0.84), "pic": Color(0.30, 0.24, 0.16), "lam": Color(0.55, 0.50, 0.35), "pan": Color(0.30, 0.31, 0.33), "bld": Color(0, 0, 0)}
 
 var Blood
 var Sfx
@@ -302,6 +303,70 @@ func _block(r: Rect2, col: Color, solid: bool, kind: String) -> void:
 		scr.position = Vector2(4, 4)
 		scr.size = Vector2(r.size.x - 8.0, r.size.y - 8.0)
 		b.add_child(scr)
+	elif kind == "rug":
+		# Tapete: listras gastadas, sem colisão (dá para pisar e escorregar nele).
+		for i in 4:
+			var st := ColorRect.new()
+			st.color = col.lightened(0.22)
+			st.position = Vector2(8.0 + float(i) * (r.size.x - 16.0) / 4.0, 8.0)
+			st.size = Vector2(3.0, r.size.y - 16.0)
+			b.add_child(st)
+	elif kind == "crt":
+		# Caixa de papelão com fita.
+		var tp := ColorRect.new()
+		tp.color = Color(0.72, 0.66, 0.55)
+		tp.position = Vector2(2.0, r.size.y * 0.5 - 2.0)
+		tp.size = Vector2(r.size.x - 4.0, 4.0)
+		b.add_child(tp)
+	elif kind == "chr2":
+		# Cadeira caída: assento de um lado, encosto para o outro.
+		var st2 := ColorRect.new()
+		st2.color = col.lightened(0.16)
+		st2.size = Vector2(r.size.x * 0.6, r.size.y * 0.6)
+		b.add_child(st2)
+		var bk2 := ColorRect.new()
+		bk2.color = col.darkened(0.24)
+		bk2.position = Vector2(r.size.x * 0.6, 0)
+		bk2.size = Vector2(r.size.x * 0.4, r.size.y)
+		b.add_child(bk2)
+	elif kind == "gur":
+		# Maca de hospital: colchão claro e rodinhas.
+		var mt := ColorRect.new()
+		mt.color = Color(0.90, 0.90, 0.88)
+		mt.position = Vector2(3, 3)
+		mt.size = r.size - Vector2(6, 6)
+		b.add_child(mt)
+		for i in 2:
+			var wl := ColorRect.new()
+			wl.color = Color(0.25, 0.25, 0.28)
+			wl.position = Vector2(4.0 + float(i) * (r.size.x - 12.0), r.size.y - 4.0)
+			wl.size = Vector2(8, 4)
+			b.add_child(wl)
+	elif kind == "iv":
+		# Suporte de soro.
+		var pole := ColorRect.new()
+		pole.color = Color(0.70, 0.72, 0.75)
+		pole.position = Vector2(r.size.x * 0.5 - 1.5, 0)
+		pole.size = Vector2(3.0, r.size.y)
+		b.add_child(pole)
+		var bag := ColorRect.new()
+		bag.color = Color(0.90, 0.92, 0.86, 0.92)
+		bag.position = Vector2(r.size.x * 0.5 - 5.0, 4)
+		bag.size = Vector2(10, 14)
+		b.add_child(bag)
+	elif kind == "pic":
+		# Quadro caído no chão.
+		var gl := ColorRect.new()
+		gl.color = Color(0.16, 0.20, 0.26)
+		gl.position = Vector2(3, 3)
+		gl.size = r.size - Vector2(6, 6)
+		b.add_child(gl)
+	elif kind == "pan":
+		var gl2 := ColorRect.new()
+		gl2.color = col.lightened(0.30)
+		gl2.position = Vector2(r.size.x * 0.25, r.size.y * 0.25)
+		gl2.size = r.size * 0.5
+		b.add_child(gl2)
 	add_child(b)
 
 
@@ -341,7 +406,11 @@ func _build_world() -> void:
 	for p in map["props"]:
 		var r2 := Rect2(p[0], p[1], p[2], p[3])
 		var kind: String = p[4]
-		var solid := kind != "bed"
+		if kind == "bld":
+			# Sangue antigo já no cenário: cada mapa é uma cena de crime.
+			blood.stamp(r2.get_center(), Vector2(maxf(0.5, r2.size.x / 95.0), maxf(0.45, r2.size.y / 95.0)), randf() * TAU, BLOOD_DRY)
+			continue
+		var solid: bool = kind != "bed" and kind != "rug"
 		_block(r2, PROPCOL.get(kind, Color(0.4, 0.3, 0.2)), solid, kind)
 		if solid:
 			solids.append(r2)
@@ -869,7 +938,8 @@ func hurt_player(d: float, from: Vector2 = Vector2.ZERO) -> void:
 		death_t = 2.5
 		fig.dead = true
 		fig.fall_t = 0.25
-		fig.fall_rot = randf_range(1.8, 3.0) * (1.0 if randf() < 0.5 else -1.0)
+		fig.lie_sign = 1.0 if randf() < 0.5 else -1.0
+		fig.fall_rot = 2.5 * fig.lie_sign
 		msg("FIM.")
 
 
@@ -1057,6 +1127,7 @@ func _physics_process(delta: float) -> void:
 	fig.hold = _hold_for(art.art)
 	fig.swing = art.swing
 	fig.recoil = art.recoil
+	fig.reload_p = art.reload_p
 	fig.blood = clampf(1.0 - php / php_max, 0.0, 1.0)
 	if light != null:
 		light.energy = lerpf(light.energy, 1.3, 0.15)
@@ -1115,20 +1186,19 @@ func on_death(a, dir: Vector2, over: float) -> void:
 	if a.hostage:
 		hostages_dead += 1
 		msg("REFEM MORTO")
-	corpses.append({"n": a, "t": CORPSE_LIFE, "pool": 0.0})
-	if corpses.size() > CORPSE_MAX:
-		var old = corpses.pop_front()
-		if is_instance_valid(old["n"]):
-			old["n"].queue_free()
-	blood.splash(a.global_position, dir, 1.35, BLOOD_ART)
-	blood.stamp(a.global_position, Vector2(0.95, 0.8), randf() * TAU, BLOOD_ART)
+	# O corpo fica para sempre: nada de cadáver evaporando na frente do jogador.
+	corpses.append({"n": a, "pool": 0.0, "age": 0.0})
+	blood.splash(a.global_position, dir, 1.5, BLOOD_ART)
+	blood.stamp(a.global_position, Vector2(1.05, 0.85), randf() * TAU, BLOOD_ART)
+	# jorro arterial: escorre para longe do corpo, no sentido do golpe
+	blood.stamp(a.global_position + dir * randf_range(16.0, 30.0), Vector2(0.8, 0.3), dir.angle(), BLOOD_ART)
 	hitstop(0.05)
 	# abate violento empurra a câmera: fecha o golpe
 	shake(3.0 + minf(over * 0.12, 5.0))
-	if over > 15.0:
-		for i in int(clampf(over / 20.0, 1.0, 5.0)):
+	if over > 8.0:
+		for i in int(clampf(over / 16.0, 1.0, 6.0)):
 			spawn_piece("meat", a.global_position, dir, a.skin, a.hair)
-	if over > 40.0:
+	if over > 26.0:
 		for i in 1 + randi() % 3:
 			spawn_piece(["heart", "lung", "gut"][randi() % 3], a.global_position, dir, a.skin, a.hair)
 
@@ -1155,23 +1225,31 @@ func _update_pieces() -> void:
 func _update_corpses(delta: float) -> void:
 	var keep: Array = []
 	for c in corpses:
-		c["t"] -= delta
 		var a = c["n"]
 		if not is_instance_valid(a):
 			continue
-		if float(c["t"]) <= 0.0:
-			a.queue_free()
-			continue
-		# poça embaixo do corpo cresce com o tempo (prioridade baixa)
+		# A poça embaixo do corpo cresce e seca com a idade, mas o corpo NUNCA
+		# desaparece: só sai do mundo se passar do teto e já estar longe da câmera.
 		c["pool"] += delta
-		if float(c["pool"]) >= 0.55:
+		if float(c["pool"]) >= 0.6 and float(c["age"]) < 1.0:
 			c["pool"] = 0.0
-			var age: float = clampf(1.0 - float(c["t"]) / CORPSE_LIFE, 0.0, 1.0)
-			var r: float = 0.45 + age * 1.15
+			c["age"] = minf(1.0, float(c["age"]) + 0.11)
+			var age: float = c["age"]
+			var r: float = 0.45 + age * 1.25
 			var col := Color(0.46 - 0.16 * age, 0.0, 0.03, 0.9)
 			var p: Vector2 = a.global_position + Vector2(randf_range(-16, 16), randf_range(-16, 16))
 			blood.stamp_lo(p, Vector2(r, r * randf_range(0.7, 1.0)), randf() * TAU, col)
-		if float(c["t"]) < 3.0:
-			a.modulate.a = clampf(float(c["t"]) / 3.0, 0.0, 1.0)
+			if age > 0.35 and randf() < 0.4:
+				var ed: Vector2 = Vector2.from_angle(randf() * TAU)
+				blood.stamp_lo(a.global_position + ed * randf_range(14.0, 32.0), Vector2(0.35, 0.17), ed.angle(), col)
 		keep.append(c)
 	corpses = keep
+	while corpses.size() > CORPSE_MAX:
+		var old = corpses[0]
+		if not is_instance_valid(old["n"]):
+			corpses.pop_front()
+			continue
+		if old["n"].global_position.distance_to(player.global_position) < 700.0:
+			break
+		corpses.pop_front()
+		old["n"].queue_free()

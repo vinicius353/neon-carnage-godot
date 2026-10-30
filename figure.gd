@@ -1,6 +1,7 @@
 extends Node2D
 # Modelo de personagem desenhado em código (visto de cima, olhando para +x).
-# Serve para o jogador, civis e policiais.
+# Serve para o jogador, civis e policiais. Morto, o corpo cai e fica deitado no
+# chão com os membros largados — não é o boneco em pé que encolhe.
 
 var skin := Color(0.85, 0.70, 0.55)
 var shirt := Color(0.50, 0.40, 0.50)
@@ -14,6 +15,7 @@ var arm_r := true
 var leg_l := true
 var leg_r := true
 var fall_rot := 2.5
+var lie_sign := 1.0
 var dead := false
 var sleeping := false
 var moving := false
@@ -21,12 +23,14 @@ var phase := 0.0
 var hold := "none"
 var swing := 0.0
 var recoil := 0.0
+var reload_p := -1.0
 var blood := 0.0
 var kick := Vector2.ZERO
 var fall_t := 0.0
 var seed_v := 0.0
 var t := 0.0
 var redraw_t := 0.0
+var _rot := 0.0
 
 
 func _process(delta: float) -> void:
@@ -34,14 +38,15 @@ func _process(delta: float) -> void:
 	kick = kick.move_toward(Vector2.ZERO, delta * 30.0)
 	if fall_t > 0.0:
 		fall_t = maxf(0.0, fall_t - delta)
+		queue_redraw()
 		if fall_t == 0.0 and dead:
-			# cadáver já caiu: não há mais nada para animar
+			# corpo assentou no chão: para de animar (cadáver é estático e barato)
 			set_process(false)
-			return
+		return
 	redraw_t -= delta
 	if redraw_t > 0.0:
 		return
-	var anim: bool = moving or swing > 0.0 or recoil > 0.0 or fall_t > 0.0 or kick != Vector2.ZERO
+	var anim: bool = moving or swing > 0.0 or recoil > 0.0 or kick != Vector2.ZERO or reload_p >= 0.0
 	if anim:
 		# personagem em ação: anima a 14 fps (suficiente para o pixel)
 		redraw_t = 0.07
@@ -66,6 +71,14 @@ func _leg_stump(p: Vector2) -> void:
 	draw_circle(p, 1.4, Color(0.9, 0.88, 0.8))
 
 
+func _leg_prone(hip: Vector2, ang: float, c: Color) -> void:
+	# Perna esticada no chão, girada a partir do quadril.
+	draw_set_transform(kick + hip.rotated(_rot), _rot + ang, Vector2.ONE)
+	draw_rect(Rect2(-3.0, -2.7, 18.0, 5.4), c)
+	draw_rect(Rect2(10.0, -2.7, 5.0, 5.4), Color(0.07, 0.07, 0.09))
+	draw_set_transform(kick, _rot, Vector2.ONE)
+
+
 func _blood_spots() -> void:
 	if blood <= 0.02:
 		return
@@ -80,21 +93,31 @@ func _hands() -> Array:
 	var sw: float = 0.0
 	if moving and not dead and not sleeping:
 		sw = sin(phase) * 5.0
-	var rc: float = recoil * 3.0
+	# Recuo: as mãos vão para trás e abrem, o corpo absorve o tranco.
+	var rc: float = recoil * 5.0
 	var hl: Vector2 = Vector2(3.0 + sw, -12.0)
 	var hr: Vector2 = Vector2(3.0 - sw, 12.0)
 	if hold == "one":
-		hl = Vector2(15.0 - rc, -1.5)
-		hr = Vector2(14.0 - rc, 2.0)
+		hl = Vector2(15.0 - rc, -1.5 - recoil * 1.6)
+		hr = Vector2(14.0 - rc, 2.0 + recoil * 1.6)
 	elif hold == "two":
-		hl = Vector2(21.0 - rc, -2.0)
-		hr = Vector2(9.0 - rc, 4.0)
+		hl = Vector2(21.0 - rc, -2.0 - recoil * 1.3)
+		hr = Vector2(9.0 - rc, 4.0 + recoil * 1.3)
 	elif hold == "dual":
-		hl = Vector2(15.0 - rc, -7.0)
-		hr = Vector2(15.0 - rc, 7.0)
+		hl = Vector2(15.0 - rc, -7.0 - recoil * 2.2)
+		hr = Vector2(15.0 - rc, 7.0 + recoil * 2.2)
 	elif hold == "melee":
 		hl = Vector2(3.0, -9.0)
 		hr = Vector2(8.0, 8.0)
+	# Recarregando: a mão esquerda desce até o carregador e volta.
+	if reload_p >= 0.0 and not dead and not sleeping:
+		var ins: float = sin(clampf(reload_p, 0.0, 1.0) * PI)
+		if hold == "two" or hold == "one":
+			hl = Vector2(11.0 - 7.0 * ins, -2.0 + 6.5 * ins)
+			hr = Vector2(13.0 - 2.5 * ins, 3.0 + 3.0 * ins)
+		elif hold == "dual":
+			hl = Vector2(13.0, -9.0 + 4.0 * ins)
+			hr = Vector2(13.0, 9.0 - 4.0 * ins)
 	if dead or sleeping:
 		hl = Vector2(2.0, -11.0)
 		hr = Vector2(2.0, 11.0)
@@ -138,14 +161,78 @@ func _head(k: float) -> void:
 		draw_circle(hp + Vector2(3.6, 2.2), 0.8, Color(0.08, 0.05, 0.05))
 
 
+func _head_prone(k: float) -> void:
+	# Cabeça tombada: metade do rosto contra o chão, cabelo cobrindo o resto.
+	var hp := Vector2(8.5, 2.0)
+	if not has_head:
+		draw_circle(Vector2(6.5, 0.0), 4.4, Color(0.55, 0.03, 0.06))
+		draw_circle(Vector2(6.5, 0.0), 1.9, Color(0.9, 0.88, 0.8))
+		return
+	draw_circle(hp + Vector2(0.5, 1.0), 6.2, Color(0.0, 0.0, 0.0, 0.35))
+	draw_circle(hp, 5.6, _dk(skin, k))
+	if is_cop:
+		draw_circle(hp, 5.6, _dk(Color(0.08, 0.12, 0.30), k))
+		draw_rect(Rect2(hp.x + 3.0, hp.y - 3.6, 4.0, 7.2), _dk(Color(0.05, 0.08, 0.2), k))
+		return
+	draw_arc(hp, 5.0, -2.1, 2.1, 10, _dk(hair, k), 4.4)
+	draw_circle(hp + Vector2(-3.2, -1.0), 2.6, _dk(hair, k))
+	if hair_style == 1:
+		draw_circle(hp + Vector2(-1.0, 0.5), 5.4, _dk(hair, k))
+		draw_circle(hp + Vector2(2.6, 0.5), 4.0, _dk(skin, k))
+
+
+func _draw_prone(k: float) -> void:
+	# Corpo largado no chão visto de cima: pernas esticadas para trás, braços
+	# abertos, cabeça tombada e ferida no tronco.
+	var s: float = seed_v
+	draw_set_transform(kick, _rot, Vector2.ONE)
+	draw_circle(Vector2(-1.0, 0.0), 10.0, Color(0.0, 0.0, 0.0, 0.25))
+	if leg_l:
+		_leg_prone(Vector2(-5.0, -3.4), PI + 0.24, _dk(pants, k))
+	else:
+		_leg_stump(Vector2(-3.0, -3.4))
+	if leg_r:
+		_leg_prone(Vector2(-5.0, 3.4), PI - 0.18, _dk(pants, k))
+	else:
+		_leg_stump(Vector2(-3.0, 3.4))
+	draw_circle(Vector2(-1.5, 0.0), 8.6, _dk(shirt, k))
+	draw_arc(Vector2(-1.5, 0.0), 8.6, 0.0, TAU, 18, Color(0, 0, 0, 0.45), 1.2)
+	draw_circle(Vector2(2.0, 0.6), 6.0, _dk(shirt.lightened(0.08), k))
+	# ferida aberta no tronco: o sangramento continua no chão, não no corpo
+	draw_circle(Vector2(1.0, -2.6), 3.0, Color(0.42, 0.02, 0.04))
+	draw_circle(Vector2(1.0, -2.6), 1.5, Color(0.62, 0.06, 0.08))
+	_blood_spots()
+	if is_cop:
+		draw_circle(Vector2(1.0, -5.0), 1.4, Color(0.9, 0.8, 0.2))
+	if arm_l:
+		var la: Vector2 = Vector2(4.0 + 5.0 * sin(s), -15.0 - 2.0 * cos(s))
+		_arm(Vector2(-1.0, -7.5), la, -1.0, k)
+	else:
+		_stump(Vector2(-1.0, -7.5))
+	if arm_r:
+		var ra: Vector2 = Vector2(-6.0 + 4.0 * cos(s * 1.3), 16.0 - 2.0 * sin(s))
+		_arm(Vector2(-1.0, 7.5), ra, 1.0, k)
+	else:
+		_stump(Vector2(-1.0, 7.5))
+	_head_prone(k)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
 func _draw() -> void:
 	var k: float = 1.0
 	if dead:
-		k = 0.55
+		k = 0.6
 	elif sleeping:
 		k = 0.8
-	var fk: float = 1.0 - fall_t * 1.2
-	var base_rot: float = fall_t * fall_rot
+	var lie: float = 0.0
+	if dead:
+		lie = clampf(1.0 - fall_t / 0.25, 0.0, 1.0)
+		lie = lie * lie * (3.0 - 2.0 * lie)
+	_rot = lie * PI * 0.55 * lie_sign
+	if dead and lie >= 1.0:
+		_draw_prone(k)
+		return
+	var fk: float = 1.0 - lie * 0.08
 	var sc: Vector2 = Vector2(fk, fk)
 	var step: float = 0.0
 	if moving and not dead and not sleeping:
@@ -156,21 +243,20 @@ func _draw() -> void:
 	var twist: float = 0.0
 	if hold == "melee":
 		twist = (swing - 0.3) * 0.25
-	draw_set_transform(kick, base_rot, sc)
-	if not dead:
-		if leg_l:
-			_leg(Vector2(step * 5.0, -4.5), _dk(pants, k))
-		else:
-			_leg_stump(Vector2(-2.0, -4.5))
-		if leg_r:
-			_leg(Vector2(-step * 5.0, 4.5), _dk(pants, k))
-		else:
-			_leg_stump(Vector2(-2.0, 4.5))
-	draw_set_transform(kick, base_rot + twist, Vector2(fk * 0.78, fk * 1.25 * breathe))
+	draw_set_transform(kick, _rot, sc)
+	if leg_l:
+		_leg(Vector2(step * 5.0, -4.5), _dk(pants, k))
+	else:
+		_leg_stump(Vector2(-2.0, -4.5))
+	if leg_r:
+		_leg(Vector2(-step * 5.0, 4.5), _dk(pants, k))
+	else:
+		_leg_stump(Vector2(-2.0, 4.5))
+	draw_set_transform(kick, _rot + twist, Vector2(fk * 0.78, fk * 1.25 * breathe))
 	draw_circle(Vector2.ZERO, 9.0, _dk(shirt, k))
 	draw_arc(Vector2.ZERO, 9.0, 0.0, TAU, 20, Color(0, 0, 0, 0.5), 1.2)
 	draw_circle(Vector2(-1.5, 0.0), 5.5, _dk(shirt.lightened(0.1), k))
-	draw_set_transform(kick, base_rot, sc)
+	draw_set_transform(kick, _rot, sc)
 	_blood_spots()
 	if is_cop:
 		draw_circle(Vector2(2.5, -4.5), 1.4, Color(0.9, 0.8, 0.2))

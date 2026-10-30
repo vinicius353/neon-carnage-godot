@@ -41,6 +41,7 @@ func select(i: int) -> void:
 	main.sfx.loop_off("serra")
 	_flame_off()
 	main.art.set_art(int(list[idx]["arte"]))
+	main.art.equip_now(str(list[idx]["nome"]))
 	main.weapon_t = 1.5
 
 
@@ -62,7 +63,11 @@ func update(delta: float, firing: bool, aim: Vector2, origin: Vector2) -> void:
 	cd -= delta
 	var w: Dictionary = list[idx]
 	var nm: String = w["nome"]
+	# Progresso de recarga vai para o desenho da arma (carregador, tambor, ferrolho).
+	main.art.reload_p = -1.0
 	if reload_t > 0.0:
+		var total: float = maxf(0.001, float(w["recarga"]) / 60.0)
+		main.art.reload_p = clampf(1.0 - reload_t / total, 0.0, 1.0)
 		reload_t -= delta
 		if reload_t <= 0.0:
 			var take: int = mini(int(w["municao"]), int(reserve[nm]))
